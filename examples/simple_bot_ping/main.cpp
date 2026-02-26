@@ -24,8 +24,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT     "v1.0.0"
-#define FIRMWARE_BUILD_TEXT   "2026-02-25"
+#define FIRMWARE_VER_TEXT     "v1.0.1"
+#define FIRMWARE_BUILD_TEXT   "2026-02-27"
 
 #define LORA_FREQ      868.856
 #define LORA_BW        62.5
@@ -48,8 +48,8 @@
 #define QUIET_LIMIT_TIMES   255
 
 #define  BOT_NAME           "Mr.Pong🏓"
-#define  PUBLIC_GROUP_NAME  "#test" // #test
-#define  PUBLIC_GROUP_PSK   "nNj88ipHMztZHZaiuEi3Pw==" // #test
+#define  PUBLIC_GROUP_NAME  "#bot" // #bot
+#define  PUBLIC_GROUP_PSK   "61ChvLPk5de/aaV8na2iEQ==" // #bot
 
 // Believe it or not, this std C function is busted on some platforms!
 static uint32_t _atoi(const char* sp) {
