@@ -60,7 +60,7 @@ void UITask::renderCurrScreen() {
   _display->print(_stats);
 }
 
-void UITask::loop(bool quiet, unsigned long total_request, unsigned long total_sent, unsigned long total_received, unsigned long last_msg_count) {
+void UITask::loop(const bool quiet, const unsigned long total_request, const unsigned long total_sent, const unsigned long total_received, const unsigned long last_msg_count) {
 #ifdef PIN_USER_BTN
   if (millis() >= _next_read) {
     const int btnState = digitalRead(PIN_USER_BTN);

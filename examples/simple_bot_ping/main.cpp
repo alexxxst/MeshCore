@@ -25,8 +25,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT     "v1.0.1"
-#define FIRMWARE_BUILD_TEXT   "2026-02-28"
+#define FIRMWARE_VER_TEXT     "v1.0.2"
+#define FIRMWARE_BUILD_TEXT   "2026-02-29"
 
 #define LORA_FREQ      868.856
 #define LORA_BW        62.5
@@ -50,8 +50,9 @@
 #define QUIET_LIMIT_PAUSE   0.3f  // seconds to reply
 
 #define  BOT_NAME           "Mr.Pong🏓"
+#define  BOT_NAME_PLAIN     "Mr.Pong"
 #define  PUBLIC_GROUP_NAME  "#bot" // #bot
-#define  PUBLIC_GROUP_PSK   "61ChvLPk5de/aaV8na2iEQ==" // #bot
+#define  PUBLIC_GROUP_PSK   "61ChvLPk5de/aaV8na2iEQ==" // #bot's channel PSK
 
 // Believe it or not, this std C function is busted on some platforms!
 static uint32_t _atoi(const char* sp) {
@@ -78,6 +79,11 @@ class MyMesh : public BaseChatMesh, ContactVisitor {
   unsigned long total_request = 0;
   unsigned long total_received = 0;
   unsigned long total_sent = 0;
+  unsigned long total_thanks = 0;
+  unsigned long total_ignores = 0;
+  unsigned long total_hops = 0;
+
+  unsigned long time_start = 0;
 
   char command[512+10];
   uint8_t tmp_buf[256];
@@ -87,10 +93,11 @@ class MyMesh : public BaseChatMesh, ContactVisitor {
 
   char message[256];
 
-  void setClock(const uint32_t timestamp) const {
+  void setClock(const uint32_t timestamp) {
     const uint32_t curr = getRTCClock()->getCurrentTime();
     if (timestamp > curr) {
       getRTCClock()->setCurrentTime(timestamp);
+      time_start = timestamp;
       Serial.println("   (OK - clock set!)");
     } else {
       Serial.println("   (ERR: clock cannot go backwards)");
@@ -152,6 +159,24 @@ protected:
     return "хопов";
   }
 
+  static void format_uptime(uint32_t seconds, char *buf, const size_t buf_size)
+  {
+    const uint32_t d = seconds / 86400;
+    seconds %= 86400;
+
+    const uint32_t h = seconds / 3600;
+    seconds %= 3600;
+
+    const uint32_t m = seconds / 60;
+
+    if (d > 0)
+      snprintf(buf, buf_size, "%ud %uh %um", d, h, m);
+    else if (h > 0)
+      snprintf(buf, buf_size, "%uh %um", h, m);
+    else
+      snprintf(buf, buf_size, "%um", m);
+  }
+
   void onChannelMessageRecv(const mesh::GroupChannel& channel, mesh::Packet* pkt, const uint32_t timestamp, const char *text) override {
     Serial.printf("   %s\n", text);
     if (!clock_set) {
@@ -176,26 +201,51 @@ protected:
 
     quiet = last_msg_count >= QUIET_LIMIT_COUNT;
 
+    message[0] = 0;
     char _from[100], _text[200];
-    sscanf(text, "%99[^:]: %199s", _from, _text);
-    if (strcmp(_text, "ping") == 0 || strcmp(_text, "Ping") == 0 || strcmp(_text, "test") == 0 || strcmp(_text, "Test") == 0 || strcmp(_text, "пинг") == 0 || strcmp(_text, "Пинг") == 0 || strcmp(_text, "тест") == 0 || strcmp(_text, "Тест") == 0) {
-      if (pkt->isRouteDirect() || pkt->path_len == 0) {
-        sprintf(message, "@[%s] директ c SNR %03.2f dB", _from, pkt->getSNR());
-        Serial.printf("%s\n", message);
-      } else {
-        char _path[3 * pkt->path_len + 1];
-        unsigned int offset = 0;
-        for (size_t i = 0; i < pkt->path_len; i++) {
-          offset += snprintf(_path + offset, sizeof(_path) - offset, "%02X,", pkt->path[i]);
+    if (sscanf(text, "%99[^:]: %199[^\0]", _from, _text) > 0) {
+
+      // ping
+      if (strcmp(_text, "ping") == 0 || strcmp(_text, "Ping") == 0 || strcmp(_text, "test") == 0 || strcmp(_text, "Test") == 0 || strcmp(_text, "пинг") == 0 || strcmp(_text, "Пинг") == 0 || strcmp(_text, "тест") == 0 || strcmp(_text, "Тест") == 0) {
+        if (pkt->isRouteDirect() || pkt->path_len == 0) {
+          sprintf(message, "@[%s] директ c SNR %03.2f dB", _from, pkt->getSNR());
+        } else {
+          char _path[3 * pkt->path_len + 1];
+          unsigned int offset = 0;
+          for (size_t i = 0; i < pkt->path_len; i++) {
+            offset += snprintf(_path + offset, sizeof(_path) - offset, "%02X,", pkt->path[i]);
+          }
+
+          if (offset > 0) {
+            _path[offset - 1] = '\0';
+          }
+          sprintf(message, "@[%s] %d %s: %s", _from, pkt->path_len, hop_word(pkt->path_len), _path);
+          total_hops = total_hops + pkt->path_len;
+        }
+      }
+
+      // to bot command
+      if (strstr(_text, BOT_NAME_PLAIN) != nullptr) {
+
+        // stats
+        if (strstr(_text, "stats") != nullptr) {
+          char uptime[32];
+          format_uptime(getRTCClock()->getCurrentTime() - time_start - 1, uptime, sizeof(uptime));
+          sprintf(message, "Bot stats: uptime: %s, requests: %d, replies: %d, %d minutes: %d, thanks: %d, ignores: %d, total: %d, hops: %d", uptime, total_request, total_sent, QUIET_LIMIT_TIME, last_msg_count, total_thanks, total_ignores, total_received, total_hops);
         }
 
-        if (offset > 0) {
-          _path[offset - 1] = '\0';
+        // thanks
+        if (strstr(_text, "спасибо") != nullptr || strstr(_text, "thank") != nullptr || strstr(_text, "Спасибо") != nullptr || strstr(_text, "Thank") != nullptr) {
+          total_thanks++;
+          sprintf(message, "@[%s] вот так нихера, кто-то сказал спасибо!", _from);
         }
-        sprintf(message, "@[%s] %d %s: %s", _from, pkt->path_len, hop_word(pkt->path_len), _path);
-        Serial.printf("%s\n", message);
+
       }
+    }
+
+    if (message[0] != 0) {
       total_request++;
+      Serial.printf("%s\n", message);
       if (!quiet && _ms->getMillis() - last_msg_sent > QUIET_LIMIT_SECONDS * 1000) { // QUIET_LIMIT_SECONDS sec
         // pause for QUIET_LIMIT_PAUSE seconds before reply
         delay(QUIET_LIMIT_PAUSE * 1000);
@@ -204,6 +254,7 @@ protected:
         total_sent++;
       } else {
         Serial.printf("Quiet please!\n");
+        total_ignores++;
       }
     }
   }
@@ -246,6 +297,7 @@ public:
     _prefs.powersaving_enabled = false;
 
     command[0] = 0;
+    message[0] = 0;
     clock_set = false;
   }
 
@@ -360,6 +412,11 @@ public:
       Serial.println(FIRMWARE_VER_TEXT);
     } else if (memcmp(command, "reboot", 6) == 0) {
       board.reboot();
+    } else if (memcmp(command, "stats", 5) == 0) {
+      char uptime[32];
+      format_uptime(getRTCClock()->getCurrentTime() - time_start - 1, uptime, sizeof(uptime));
+      sprintf(message, "Bot stats:\n uptime: %s\n requests: %d\n replies: %d\n %d minutes: %d\n thanks: %d\n ignores: %d\n total: %d\n hops: %d", uptime, total_request, total_sent, QUIET_LIMIT_TIME, last_msg_count, total_thanks, total_ignores, total_received, total_hops);
+      Serial.println(message);
     } else if (memcmp(command, "shutdown", 8) == 0) {
       display.turnOff();
       radio_driver.powerOff();
@@ -369,6 +426,7 @@ public:
       Serial.println("   clock");
       Serial.println("   time <epoch-seconds>");
       Serial.println("   advert");
+      Serial.println("   stats");
       Serial.println("   quiet");
       Serial.println("   reboot");
       Serial.println("   shutdown");
@@ -435,7 +493,7 @@ void setup() {
 #endif
 
 #ifdef DISPLAY_CLASS
-  ui_task.begin(BOT_NAME, PUBLIC_GROUP_NAME);
+  ui_task.begin(BOT_NAME_PLAIN, PUBLIC_GROUP_NAME);
 #endif
 
   radio_set_params(LORA_FREQ, LORA_BW, LORA_SF, LORA_CR);
