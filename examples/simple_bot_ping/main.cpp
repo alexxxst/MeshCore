@@ -1,6 +1,7 @@
 #include <Arduino.h>   // needed for PlatformIO
 #include <Mesh.h>
 #include <helpers/CommonCLI.h>
+#include <sys/signal.h>
 
 #if defined(NRF52_PLATFORM)
   #include <InternalFileSystem.h>
@@ -25,7 +26,7 @@
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
 #define FIRMWARE_VER_TEXT     "v1.0.1"
-#define FIRMWARE_BUILD_TEXT   "2026-02-27"
+#define FIRMWARE_BUILD_TEXT   "2026-02-28"
 
 #define LORA_FREQ      868.856
 #define LORA_BW        62.5
@@ -42,10 +43,11 @@
 
 #define MAX_GROUP_CHANNELS  1
 
-#define QUIET_LIMIT_SECONDS 5
-#define QUIET_LIMIT_TIME    5 // minutes
-#define QUIET_LIMIT_COUNT   20
-#define QUIET_LIMIT_TIMES   255
+#define QUIET_LIMIT_SECONDS 5     // seconds to cooldown
+#define QUIET_LIMIT_TIME    5     // minutes to check
+#define QUIET_LIMIT_COUNT   20    // messages to check
+#define QUIET_LIMIT_TIMES   255   // overall limit for timestamps array
+#define QUIET_LIMIT_PAUSE   0.3f  // seconds to reply
 
 #define  BOT_NAME           "Mr.Pong🏓"
 #define  PUBLIC_GROUP_NAME  "#bot" // #bot
@@ -68,8 +70,8 @@ class MyMesh : public BaseChatMesh, ContactVisitor {
   NodePrefs _prefs;
   uint32_t expected_ack_crc;
   ChannelDetails* _public;
-  unsigned long last_msg_sent;
-  unsigned long last_msg_rcvd;
+  unsigned long last_msg_sent = 0;
+  unsigned long last_msg_rcvd = 0;
   unsigned long last_msg_times[QUIET_LIMIT_TIMES];
   unsigned long last_msg_count = 0;
 
@@ -100,9 +102,9 @@ protected:
     return _prefs.airtime_factor;
   }
 
-  int calcRxDelay(float score, uint32_t air_time) const override {
+  int calcRxDelay(const float score, const uint32_t air_time) const override {
     if (_prefs.rx_delay_base <= 0.0f) return 0;
-    return (int)((pow(_prefs.rx_delay_base, 0.85f - score) - 1.0) * air_time);
+    return static_cast<int>((pow(_prefs.rx_delay_base, 0.85f - score) - 1.0) * air_time);
   }
 
   bool allowPacketForward(const mesh::Packet* packet) override {
@@ -182,7 +184,7 @@ protected:
         Serial.printf("%s\n", message);
       } else {
         char _path[3 * pkt->path_len + 1];
-        int8_t offset = 0;
+        unsigned int offset = 0;
         for (size_t i = 0; i < pkt->path_len; i++) {
           offset += snprintf(_path + offset, sizeof(_path) - offset, "%02X,", pkt->path[i]);
         }
@@ -195,6 +197,8 @@ protected:
       }
       total_request++;
       if (!quiet && _ms->getMillis() - last_msg_sent > QUIET_LIMIT_SECONDS * 1000) { // QUIET_LIMIT_SECONDS sec
+        // pause for QUIET_LIMIT_PAUSE seconds before reply
+        delay(QUIET_LIMIT_PAUSE * 1000);
         sendMessage(message);
         last_msg_sent = _ms->getMillis();
         total_sent++;
@@ -212,11 +216,11 @@ protected:
     // not supported
   }
 
-  uint32_t calcFloodTimeoutMillisFor(uint32_t pkt_airtime_millis) const override {
-    return SEND_TIMEOUT_BASE_MILLIS + (FLOOD_SEND_TIMEOUT_FACTOR * pkt_airtime_millis);
+  uint32_t calcFloodTimeoutMillisFor(const uint32_t pkt_airtime_millis) const override {
+    return SEND_TIMEOUT_BASE_MILLIS + FLOOD_SEND_TIMEOUT_FACTOR * static_cast<float>(pkt_airtime_millis);
   }
-  uint32_t calcDirectTimeoutMillisFor(uint32_t pkt_airtime_millis, uint8_t path_len) const override {
-    return SEND_TIMEOUT_BASE_MILLIS + (pkt_airtime_millis * DIRECT_SEND_PERHOP_FACTOR + DIRECT_SEND_PERHOP_EXTRA_MILLIS) * (path_len + 1);
+  uint32_t calcDirectTimeoutMillisFor(const uint32_t pkt_airtime_millis, const uint8_t path_len) const override {
+    return SEND_TIMEOUT_BASE_MILLIS + (static_cast<float>(pkt_airtime_millis) * DIRECT_SEND_PERHOP_FACTOR + DIRECT_SEND_PERHOP_EXTRA_MILLIS) * static_cast<float>(path_len + 1);
   }
 
   void onSendTimeout() override {
@@ -285,7 +289,7 @@ public:
       while (c != '\n') {   // wait for ENTER to be pressed
         if (Serial.available()) c = Serial.read();
       }
-      ((StdRNG *)getRNG())->begin(millis());
+      ((StdRNG *)getRNG())->begin(static_cast<long>(millis()));
 
       self_id = mesh::LocalIdentity(getRNG());  // create new random identity
       int count = 0;
@@ -314,10 +318,10 @@ public:
     memcpy(temp, &timestamp, 4);   // mostly an extra blob to help make packet_hash unique
     temp[4] = 0;  // attempt and flags
 
-    sprintf((char *) &temp[5], "%s: %s", _prefs.node_name, &message[0]);  // <sender>: <msg>
+    sprintf(reinterpret_cast<char *>(&temp[5]), "%s: %s", _prefs.node_name, &message[0]);  // <sender>: <msg>
     temp[5 + MAX_TEXT_LEN] = 0;  // truncate if too long
 
-    const int len = strlen((char *) &temp[5]);
+    const unsigned int len = strlen(reinterpret_cast<char *>(&temp[5]));
     const auto pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, _public->channel, temp, 5 + len);
     if (pkt) {
       sendFlood(pkt);
@@ -404,7 +408,7 @@ StdRNG fast_rng;
 SimpleMeshTables tables;
 MyMesh the_mesh(radio_driver, fast_rng, rtc_clock, tables);
 
-void halt() {
+[[noreturn]] void halt() {
   while (true);
 }
 
@@ -415,7 +419,7 @@ void setup() {
 
   if (!radio_init()) { halt(); }
 
-  fast_rng.begin(radio_get_rng_seed());
+  fast_rng.begin(static_cast<long>(radio_get_rng_seed()));
 
 #if defined(NRF52_PLATFORM)
   InternalFS.begin();
