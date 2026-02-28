@@ -32,7 +32,7 @@
 #define LORA_BW        62.5
 #define LORA_SF        8
 #define LORA_CR        5
-#define LORA_TX_POWER  10
+#define LORA_TX_POWER  22
 
 #include <helpers/BaseChatMesh.h>
 
