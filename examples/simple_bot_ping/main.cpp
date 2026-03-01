@@ -25,14 +25,18 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT     "v1.0.3"
-#define FIRMWARE_BUILD_TEXT   "2026-03-01"
+#define FIRMWARE_VER_TEXT     "v1.0.4"
+#define FIRMWARE_BUILD_TEXT   "2026-03-02"
 
 #define LORA_FREQ      868.856
 #define LORA_BW        62.5
 #define LORA_SF        8
 #define LORA_CR        5
-#define LORA_TX_POWER  22
+#define LORA_TX_POWER  10
+
+#ifndef MAX_CONTACTS
+  #define MAX_CONTACTS         350
+#endif
 
 #include <helpers/BaseChatMesh.h>
 
@@ -76,6 +80,7 @@ class MyMesh : public BaseChatMesh, ContactVisitor {
   unsigned long last_msg_times[QUIET_LIMIT_TIMES];
   unsigned long last_msg_count = 0;
 
+  char repeaters_names[255][33];
   unsigned long first_repeaters_count[255];
   unsigned long all_repeaters_count[255];
 
@@ -95,6 +100,91 @@ class MyMesh : public BaseChatMesh, ContactVisitor {
   bool quiet = false;
 
   char message[256];
+
+  static const char* getTypeName(const uint8_t type) {
+    if (type == ADV_TYPE_CHAT) return "Chat";
+    if (type == ADV_TYPE_REPEATER) return "Repeater";
+    if (type == ADV_TYPE_ROOM) return "Room";
+    return "??";  // unknown
+  }
+
+  void loadContacts() {
+    if (_fs->exists("/contacts")) {
+#if defined(RP2040_PLATFORM)
+      File file = _fs->open("/contacts", "r");
+#else
+      File file = _fs->open("/contacts");
+#endif
+      if (file) {
+        bool full = false;
+        while (!full) {
+          ContactInfo c;
+          uint8_t pub_key[32];
+          uint8_t unused;
+          uint32_t reserved;
+
+          bool success = (file.read(pub_key, 32) == 32);
+          success = success && (file.read(&c.name, 32) == 32);
+          success = success && (file.read(&c.type, 1) == 1);
+          success = success && (file.read(&c.flags, 1) == 1);
+          success = success && (file.read(&unused, 1) == 1);
+          success = success && (file.read(&reserved, 4) == 4);
+          success = success && (file.read(&c.out_path_len, 1) == 1);
+          success = success && (file.read(&c.last_advert_timestamp, 4) == 4);
+          success = success && (file.read(c.out_path, 64) == 64);
+          c.gps_lat = c.gps_lon = 0;   // not yet supported
+
+          if (!success) break;  // EOF
+
+          c.id = mesh::Identity(pub_key);
+          c.lastmod = 0;
+
+          if (c.type == ADV_TYPE_REPEATER) {
+            snprintf(repeaters_names[c.id.pub_key[0]], 32, c.name);
+          }
+
+          if (!addContact(c)) full = true;
+        }
+        file.close();
+      }
+    }
+  }
+
+  void saveContacts() {
+#if defined(NRF52_PLATFORM)
+    _fs->remove("/contacts");
+    File file = _fs->open("/contacts", FILE_O_WRITE);
+#elif defined(RP2040_PLATFORM)
+    File file = _fs->open("/contacts", "w");
+#else
+    File file = _fs->open("/contacts", "w", true);
+#endif
+    if (file) {
+      ContactsIterator iter;
+      ContactInfo c;
+      constexpr uint8_t unused = 0;
+      uint32_t reserved = 0;
+
+      while (iter.hasNext(this, c)) {
+        if (c.type == ADV_TYPE_REPEATER) {
+          bool success = (file.write(c.id.pub_key, 32) == 32);
+          success = success && (file.write(reinterpret_cast<uint8_t *>(&c.name), 32) == 32);
+          success = success && (file.write(&c.type, 1) == 1);
+          success = success && (file.write(&c.flags, 1) == 1);
+          success = success && (file.write(&unused, 1) == 1);
+          success = success && (file.write(reinterpret_cast<uint8_t *>(&reserved), 4) == 4);
+          success = success && (file.write(reinterpret_cast<uint8_t *>(&c.out_path_len), 1) == 1);
+          success = success && (file.write(reinterpret_cast<uint8_t *>(&c.last_advert_timestamp), 4) == 4);
+          success = success && (file.write(c.out_path, 64) == 64);
+
+          snprintf(repeaters_names[c.id.pub_key[0]], 32, c.name);
+
+          if (!success) break;  // write failed
+        }
+      }
+      file.close();
+    }
+  }
 
   void setClock(const uint32_t timestamp) {
     const uint32_t curr = getRTCClock()->getCurrentTime();
@@ -122,11 +212,15 @@ protected:
   }
 
   void onDiscoveredContact(ContactInfo& contact, bool is_new, uint8_t path_len, const uint8_t* path) override {
-    // not supported
+    Serial.printf("ADVERT from -> %s\n", contact.name);
+    Serial.printf("  type: %s\n", getTypeName(contact.type));
+    Serial.print("   public key: "); mesh::Utils::printHex(Serial, contact.id.pub_key, PUB_KEY_SIZE); Serial.println();
+    saveContacts();
   }
 
   void onContactPathUpdated(const ContactInfo& contact) override {
-    // not supported
+    Serial.printf("PATH to: %s, path_len=%d\n", contact.name, static_cast<int32_t>(contact.out_path_len));
+    saveContacts();
   }
 
   ContactInfo* processAck(const uint8_t *data) override {
@@ -227,7 +321,7 @@ protected:
           if (offset > 0) {
             _path[offset - 1] = '\0';
           }
-          sprintf(message, "@[%s] %d %s: %s", _from, pkt->path_len, hop_word(pkt->path_len), _path);
+          sprintf(message, "@[%s] %d %s с %s: %s", _from, pkt->path_len, hop_word(pkt->path_len), repeaters_names[pkt->path[0]], _path);
           total_hops = total_hops + pkt->path_len;
         }
       }
@@ -262,12 +356,11 @@ protected:
         // repeaters
         if (strstr(_text, "репитеры") != nullptr || strstr(_text, "repeaters") != nullptr || strstr(_text, "Репитеры") != nullptr || strstr(_text, "Repeaters") != nullptr) {
 
-          unsigned long o_max1 = 0, o_max2 = 0, o_max3 = 0, a_max1 = 0, a_max2 = 0, a_max3 = 0;
-          int o_idx1 = -1, o_idx2 = -1, o_idx3 = -1, a_idx1 = -1, a_idx2 = -1, a_idx3 = -1;
+          unsigned long o_max1 = 0, o_max2 = 0, o_max3 = 0;
+          int o_idx1 = -1, o_idx2 = -1, o_idx3 = -1;
 
           for (int i = 0; i < 255; i++) {
             const unsigned long o_val = first_repeaters_count[i];
-            const unsigned long a_val = all_repeaters_count[i];
 
             if (o_val > o_max1) {
               o_max3 = o_max2; o_idx3 = o_idx2;
@@ -279,21 +372,10 @@ protected:
             } else if (o_val > o_max3) {
               o_max3 = o_val;  o_idx3 = i;
             }
-
-            if (a_val > a_max1) {
-              a_max3 = a_max2; a_idx3 = a_idx2;
-              a_max2 = a_max1; a_idx2 = a_idx1;
-              a_max1 = a_val;  a_idx1 = i;
-            } else if (a_val > a_max2) {
-              a_max3 = a_max2; a_idx3 = a_idx2;
-              a_max2 = a_val;  a_idx2 = i;
-            } else if (a_val > a_max3) {
-              a_max3 = a_val;  a_idx3 = i;
-            }
           }
 
-          if (a_idx3 > 0 && o_idx3 > 0) {
-            sprintf(message, "Исходящие репитеры:\n%02X - %d\n%02X - %d\n%02X - %d\n\nВообще репитеры:\n%02X - %d\n%02X - %d\n%02X - %d", o_idx1, o_max1, o_idx2, o_max2, o_idx3, o_max3, a_idx1, a_max1, a_idx2, a_max2, a_idx3, a_max3);
+          if (o_idx3 > 0) {
+            sprintf(message, "Исходящие топ-3 репы:\n%02X %s - %d\n%02X %s - %d\n%02X %s - %d", o_idx1, repeaters_names[o_idx1], o_max1, o_idx2, repeaters_names[o_idx2], o_max2, o_idx3, repeaters_names[o_idx3], o_max3);
           } else {
             sprintf(message, "@[%s] сорян, пока не набрался топ репитеров в этом канале", _from);
           }
@@ -362,6 +444,7 @@ public:
     for (size_t i = 0; i < 255; i++) {
       first_repeaters_count[i] = 0;
       all_repeaters_count[i] = 0;
+      snprintf(repeaters_names[i], 32, "UnknownRepeater");
     }
   }
 
@@ -415,6 +498,7 @@ public:
       store.save("_main", self_id);
     }
 
+    loadContacts();
     _public = addChannel(PUBLIC_GROUP_NAME, PUBLIC_GROUP_PSK); // pre-configure public channel
   }
 
@@ -481,6 +565,11 @@ public:
       format_uptime(getRTCClock()->getCurrentTime() - time_start - 1, uptime, sizeof(uptime));
       sprintf(message, "Bot stats:\n uptime: %s\n requests: %d\n replies: %d\n for %dm: %d\n thanks: %d\n ignores: %d\n total: %d\n hops: %d", uptime, total_request, total_sent, QUIET_LIMIT_TIME, last_msg_count, total_thanks, total_ignores, total_received, total_hops);
       Serial.println(message);
+    } else if (memcmp(command, "repeaters", 9) == 0) {
+        for (int i = 0; i < 255; i++) {
+          sprintf(message, "%02X - %s - %d", i, repeaters_names[i], all_repeaters_count[i]);
+          Serial.println(message);
+        }
     } else if (memcmp(command, "shutdown", 8) == 0) {
       display.turnOff();
       radio_driver.powerOff();
@@ -491,6 +580,7 @@ public:
       Serial.println("   time <epoch-seconds>");
       Serial.println("   advert");
       Serial.println("   stats");
+      Serial.println("   repeaters");
       Serial.println("   quiet");
       Serial.println("   reboot");
       Serial.println("   shutdown");
