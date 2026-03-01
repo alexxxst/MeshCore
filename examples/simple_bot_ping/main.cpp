@@ -25,8 +25,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT     "v1.0.2"
-#define FIRMWARE_BUILD_TEXT   "2026-02-29"
+#define FIRMWARE_VER_TEXT     "v1.0.3"
+#define FIRMWARE_BUILD_TEXT   "2026-03-01"
 
 #define LORA_FREQ      868.856
 #define LORA_BW        62.5
@@ -75,6 +75,9 @@ class MyMesh : public BaseChatMesh, ContactVisitor {
   unsigned long last_msg_rcvd = 0;
   unsigned long last_msg_times[QUIET_LIMIT_TIMES];
   unsigned long last_msg_count = 0;
+
+  unsigned long first_repeaters_count[255];
+  unsigned long all_repeaters_count[255];
 
   unsigned long total_request = 0;
   unsigned long total_received = 0;
@@ -170,11 +173,11 @@ protected:
     const uint32_t m = seconds / 60;
 
     if (d > 0)
-      snprintf(buf, buf_size, "%ud %uh %um", d, h, m);
+      snprintf(buf, buf_size, "%uд %uч %uм", d, h, m);
     else if (h > 0)
-      snprintf(buf, buf_size, "%uh %um", h, m);
+      snprintf(buf, buf_size, "%uч %uм", h, m);
     else
-      snprintf(buf, buf_size, "%um", m);
+      snprintf(buf, buf_size, "%uм", m);
   }
 
   void onChannelMessageRecv(const mesh::GroupChannel& channel, mesh::Packet* pkt, const uint32_t timestamp, const char *text) override {
@@ -214,6 +217,11 @@ protected:
           unsigned int offset = 0;
           for (size_t i = 0; i < pkt->path_len; i++) {
             offset += snprintf(_path + offset, sizeof(_path) - offset, "%02X,", pkt->path[i]);
+            if (i == 0) {
+              // first repeaters count
+              first_repeaters_count[pkt->path[i]]++;
+            }
+            all_repeaters_count[pkt->path[i]]++;
           }
 
           if (offset > 0) {
@@ -228,16 +236,67 @@ protected:
       if (strstr(_text, BOT_NAME_PLAIN) != nullptr) {
 
         // stats
-        if (strstr(_text, "stats") != nullptr) {
+        if (strstr(_text, "stats") != nullptr || strstr(_text, "статистика") != nullptr || strstr(_text, "Stats") != nullptr || strstr(_text, "Статистика") != nullptr) {
           char uptime[32];
           format_uptime(getRTCClock()->getCurrentTime() - time_start - 1, uptime, sizeof(uptime));
-          sprintf(message, "Bot stats: uptime: %s, requests: %d, replies: %d, %d minutes: %d, thanks: %d, ignores: %d, total: %d, hops: %d", uptime, total_request, total_sent, QUIET_LIMIT_TIME, last_msg_count, total_thanks, total_ignores, total_received, total_hops);
+          int reps = 0;
+          for (const unsigned long v : all_repeaters_count) {
+            if (v > 0) {
+              reps++;
+            }
+          }
+          sprintf(message, "Стата:\n uptime: %s\n ответы: %d из %d\n канал: %d, за %dм: %d\n хопы: %d, репы: %d", uptime, total_sent, total_request, total_received, QUIET_LIMIT_TIME, last_msg_count, total_hops, reps);
         }
 
         // thanks
         if (strstr(_text, "спасибо") != nullptr || strstr(_text, "thank") != nullptr || strstr(_text, "Спасибо") != nullptr || strstr(_text, "Thank") != nullptr) {
           total_thanks++;
-          sprintf(message, "@[%s] вот так нихера, кто-то сказал спасибо!", _from);
+          sprintf(message, "@[%s] вот так нихера себе, кто-то сказал спасибо №%d!", _from, total_thanks);
+        }
+
+        // weather
+        if (strstr(_text, "погода") != nullptr || strstr(_text, "weather") != nullptr || strstr(_text, "Погода") != nullptr || strstr(_text, "Weather") != nullptr) {
+          sprintf(message, "@[%s] бля, ну в окно выгляни! Какой смысл от моих датчиков?", _from);
+        }
+
+        // repeaters
+        if (strstr(_text, "репитеры") != nullptr || strstr(_text, "repeaters") != nullptr || strstr(_text, "Репитеры") != nullptr || strstr(_text, "Repeaters") != nullptr) {
+
+          unsigned long o_max1 = 0, o_max2 = 0, o_max3 = 0, a_max1 = 0, a_max2 = 0, a_max3 = 0;
+          int o_idx1 = -1, o_idx2 = -1, o_idx3 = -1, a_idx1 = -1, a_idx2 = -1, a_idx3 = -1;
+
+          for (int i = 0; i < 255; i++) {
+            const unsigned long o_val = first_repeaters_count[i];
+            const unsigned long a_val = all_repeaters_count[i];
+
+            if (o_val > o_max1) {
+              o_max3 = o_max2; o_idx3 = o_idx2;
+              o_max2 = o_max1; o_idx2 = o_idx1;
+              o_max1 = o_val;  o_idx1 = i;
+            } else if (o_val > o_max2) {
+              o_max3 = o_max2; o_idx3 = o_idx2;
+              o_max2 = o_val;  o_idx2 = i;
+            } else if (o_val > o_max3) {
+              o_max3 = o_val;  o_idx3 = i;
+            }
+
+            if (a_val > a_max1) {
+              a_max3 = a_max2; a_idx3 = a_idx2;
+              a_max2 = a_max1; a_idx2 = a_idx1;
+              a_max1 = a_val;  a_idx1 = i;
+            } else if (a_val > a_max2) {
+              a_max3 = a_max2; a_idx3 = a_idx2;
+              a_max2 = a_val;  a_idx2 = i;
+            } else if (a_val > a_max3) {
+              a_max3 = a_val;  a_idx3 = i;
+            }
+          }
+
+          if (a_idx3 > 0 && o_idx3 > 0) {
+            sprintf(message, "Исходящие репитеры:\n%02X - %d\n%02X - %d\n%02X - %d\n\nВообще репитеры:\n%02X - %d\n%02X - %d\n%02X - %d", o_idx1, o_max1, o_idx2, o_max2, o_idx3, o_max3, a_idx1, a_max1, a_idx2, a_max2, a_idx3, a_max3);
+          } else {
+            sprintf(message, "@[%s] сорян, пока не набрался топ репитеров в этом канале", _from);
+          }
         }
 
       }
@@ -299,6 +358,11 @@ public:
     command[0] = 0;
     message[0] = 0;
     clock_set = false;
+
+    for (size_t i = 0; i < 255; i++) {
+      first_repeaters_count[i] = 0;
+      all_repeaters_count[i] = 0;
+    }
   }
 
   bool getQuiet() const {
@@ -415,7 +479,7 @@ public:
     } else if (memcmp(command, "stats", 5) == 0) {
       char uptime[32];
       format_uptime(getRTCClock()->getCurrentTime() - time_start - 1, uptime, sizeof(uptime));
-      sprintf(message, "Bot stats:\n uptime: %s\n requests: %d\n replies: %d\n %d minutes: %d\n thanks: %d\n ignores: %d\n total: %d\n hops: %d", uptime, total_request, total_sent, QUIET_LIMIT_TIME, last_msg_count, total_thanks, total_ignores, total_received, total_hops);
+      sprintf(message, "Bot stats:\n uptime: %s\n requests: %d\n replies: %d\n for %dm: %d\n thanks: %d\n ignores: %d\n total: %d\n hops: %d", uptime, total_request, total_sent, QUIET_LIMIT_TIME, last_msg_count, total_thanks, total_ignores, total_received, total_hops);
       Serial.println(message);
     } else if (memcmp(command, "shutdown", 8) == 0) {
       display.turnOff();
