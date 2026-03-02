@@ -49,47 +49,37 @@
 
 #define QUIET_LIMIT_SECONDS 5     // seconds to cooldown
 #define QUIET_LIMIT_TIME    5     // minutes to check
-#define QUIET_LIMIT_COUNT   20    // messages to check
+#define QUIET_LIMIT_COUNT   30    // messages to check
 #define QUIET_LIMIT_TIMES   255   // overall limit for timestamps array
-#define QUIET_LIMIT_PAUSE   0.3f  // seconds to reply
+#define QUIET_LIMIT_PAUSE   2.0f  // seconds to reply
 
 #define  BOT_NAME           "Mr.Pong🏓"
 #define  BOT_NAME_PLAIN     "Mr.Pong"
 #define  PUBLIC_GROUP_NAME  "#bot" // #bot
 #define  PUBLIC_GROUP_PSK   "61ChvLPk5de/aaV8na2iEQ==" // #bot's channel PSK
 
-// Believe it or not, this std C function is busted on some platforms!
-static uint32_t _atoi(const char* sp) {
-  uint32_t n = 0;
-  while (*sp && *sp >= '0' && *sp <= '9') {
-    n *= 10;
-    n += (*sp++ - '0');
-  }
-  return n;
-}
-
 /* -------------------------------------------------------------------------------------- */
 
 class MyMesh : public BaseChatMesh, ContactVisitor {
   FILESYSTEM* _fs;
   NodePrefs _prefs;
-  uint32_t expected_ack_crc;
+  uint32_t expected_ack_crc = 0;
   ChannelDetails* _public;
   unsigned long last_msg_sent = 0;
   unsigned long last_msg_rcvd = 0;
   unsigned long last_msg_times[QUIET_LIMIT_TIMES];
-  unsigned long last_msg_count = 0;
+  unsigned int last_msg_count = 0;
 
   char repeaters_names[255][33];
-  unsigned long first_repeaters_count[255];
-  unsigned long all_repeaters_count[255];
+  unsigned int first_repeaters_count[255];
+  unsigned int all_repeaters_count[255];
 
-  unsigned long total_request = 0;
-  unsigned long total_received = 0;
-  unsigned long total_sent = 0;
-  unsigned long total_thanks = 0;
-  unsigned long total_ignores = 0;
-  unsigned long total_hops = 0;
+  unsigned int total_request = 0;
+  unsigned int total_received = 0;
+  unsigned int total_sent = 0;
+  unsigned int total_thanks = 0;
+  unsigned int total_ignores = 0;
+  unsigned int total_hops = 0;
 
   unsigned long time_start = 0;
 
@@ -140,7 +130,9 @@ class MyMesh : public BaseChatMesh, ContactVisitor {
           c.lastmod = 0;
 
           if (c.type == ADV_TYPE_REPEATER) {
-            snprintf(repeaters_names[c.id.pub_key[0]], 32, c.name);
+            sprintf(repeaters_names[pub_key[0]], "%s", c.name);
+            // sprintf(message, "Loaded %02X %s", pub_key[0], c.name);
+            // Serial.println(message);
           }
 
           if (!addContact(c)) full = true;
@@ -177,7 +169,11 @@ class MyMesh : public BaseChatMesh, ContactVisitor {
           success = success && (file.write(reinterpret_cast<uint8_t *>(&c.last_advert_timestamp), 4) == 4);
           success = success && (file.write(c.out_path, 64) == 64);
 
-          snprintf(repeaters_names[c.id.pub_key[0]], 32, c.name);
+          if (success) {
+            sprintf(repeaters_names[c.id.pub_key[0]], "%s", c.name);
+            // sprintf(message, "Saved %02X %s", c.id.pub_key[0], c.name);
+            // Serial.println(message);
+          }
 
           if (!success) break;  // write failed
         }
@@ -303,7 +299,7 @@ protected:
     if (sscanf(text, "%99[^:]: %199[^\0]", _from, _text) > 0) {
 
       // ping
-      if (strcmp(_text, "ping") == 0 || strcmp(_text, "Ping") == 0 || strcmp(_text, "test") == 0 || strcmp(_text, "Test") == 0 || strcmp(_text, "пинг") == 0 || strcmp(_text, "Пинг") == 0 || strcmp(_text, "тест") == 0 || strcmp(_text, "Тест") == 0) {
+      if (strncasecmp(_text, "ping", 4) == 0 || strncasecmp(_text, "test", 4) == 0 || strncmp(_text, "пинг", 8) == 0 || strncmp(_text, "Пинг", 8) == 0 || strncmp(_text, "тест", 8) == 0 || strncmp(_text, "Тест", 8) == 0) {
         if (pkt->isRouteDirect() || pkt->path_len == 0) {
           sprintf(message, "@[%s] директ c SNR %03.2f dB", _from, pkt->getSNR());
         } else {
@@ -334,7 +330,7 @@ protected:
           char uptime[32];
           format_uptime(getRTCClock()->getCurrentTime() - time_start - 1, uptime, sizeof(uptime));
           int reps = 0;
-          for (const unsigned long v : all_repeaters_count) {
+          for (const unsigned int v : all_repeaters_count) {
             if (v > 0) {
               reps++;
             }
@@ -356,11 +352,11 @@ protected:
         // repeaters
         if (strstr(_text, "репитеры") != nullptr || strstr(_text, "repeaters") != nullptr || strstr(_text, "Репитеры") != nullptr || strstr(_text, "Repeaters") != nullptr) {
 
-          unsigned long o_max1 = 0, o_max2 = 0, o_max3 = 0;
+          unsigned int o_max1 = 0, o_max2 = 0, o_max3 = 0;
           int o_idx1 = -1, o_idx2 = -1, o_idx3 = -1;
 
           for (int i = 0; i < 255; i++) {
-            const unsigned long o_val = first_repeaters_count[i];
+            const unsigned int o_val = first_repeaters_count[i];
 
             if (o_val > o_max1) {
               o_max3 = o_max2; o_idx3 = o_idx2;
@@ -389,7 +385,7 @@ protected:
       Serial.printf("%s\n", message);
       if (!quiet && _ms->getMillis() - last_msg_sent > QUIET_LIMIT_SECONDS * 1000) { // QUIET_LIMIT_SECONDS sec
         // pause for QUIET_LIMIT_PAUSE seconds before reply
-        delay(QUIET_LIMIT_PAUSE * 1000);
+        // delay(QUIET_LIMIT_PAUSE * 1000);
         sendMessage(message);
         last_msg_sent = _ms->getMillis();
         total_sent++;
@@ -425,7 +421,7 @@ public:
   {
     // defaults
     memset(&_prefs, 0, sizeof(_prefs));
-    _prefs.airtime_factor = 2.0;    // one third
+    _prefs.airtime_factor = 1.0;
     strcpy(_prefs.node_name, BOT_NAME);
     _prefs.freq = LORA_FREQ;
     _prefs.bw = LORA_BW;
@@ -436,6 +432,7 @@ public:
     _prefs.node_lat = 0.0;
     _prefs.node_lon = 0.0;
     _prefs.powersaving_enabled = false;
+    _prefs.agc_reset_interval = 12;
 
     command[0] = 0;
     message[0] = 0;
@@ -512,6 +509,10 @@ public:
   void onContactVisit(const ContactInfo& contact) override {
   }
 
+  bool shouldOverwriteWhenFull() const override {
+    return true;
+  }
+
   void sendMessage(const char* message) {
     uint8_t temp[5+MAX_TEXT_LEN+32];
     const uint32_t timestamp = getRTCClock()->getCurrentTime();
@@ -541,10 +542,6 @@ public:
       const uint32_t now = getRTCClock()->getCurrentTime();
       const auto dt = DateTime(now);
       Serial.printf(   "%02d:%02d - %d/%d/%d UTC\n", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
-    } else if (memcmp(command, "time ", 5) == 0) {  // set time (to epoch seconds)
-      const uint32_t secs = _atoi(&command[5]);
-      setClock(secs);
-      clock_set = true;
     } else if (strcmp(command, "quiet") == 0) {
       quiet = true;
       Serial.println("   (quiet set).");
@@ -577,7 +574,6 @@ public:
     } else if (memcmp(command, "help", 4) == 0) {
       Serial.println("Commands:");
       Serial.println("   clock");
-      Serial.println("   time <epoch-seconds>");
       Serial.println("   advert");
       Serial.println("   stats");
       Serial.println("   repeaters");
