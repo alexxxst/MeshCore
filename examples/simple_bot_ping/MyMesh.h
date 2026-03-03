@@ -146,15 +146,7 @@ protected:
 
   bool allowPacketForward(const mesh::Packet *packet) override { return true; }
 
-  void onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len,
-                           const uint8_t *path) override {
-    Serial.printf("ADVERT from -> %s\n", contact.name);
-    Serial.printf("  type: %s\n", getTypeName(contact.type));
-    Serial.print("   public key: ");
-    mesh::Utils::printHex(Serial, contact.id.pub_key, PUB_KEY_SIZE);
-    Serial.println();
-    saveContacts();
-  }
+  void onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t *path) override;
 
   void onContactPathUpdated(const ContactInfo &contact) override {
     Serial.printf("PATH to: %s, path_len=%d\n", contact.name, static_cast<int32_t>(contact.out_path_len));

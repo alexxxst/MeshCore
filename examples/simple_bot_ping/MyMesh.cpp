@@ -273,20 +273,24 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 
   if (message[0] != 0) {
     _stats.total_request++;
-    Serial.printf("%s\n", message);
-    if (!quiet && _ms->getMillis() - last_msg_sent > QUIET_LIMIT_SECONDS * 1000) { // QUIET_LIMIT_SECONDS sec
-      // pause for QUIET_LIMIT_PAUSE seconds before reply
-      // delay(QUIET_LIMIT_PAUSE * 1000);
-      sendMessage(message);
-      last_msg_sent = _ms->getMillis();
-      _stats.total_sent++;
-    } else {
-      Serial.printf("Quiet please!\n");
-      _stats.total_ignores++;
-    }
+    sendMessage(message);
   }
 
   saveStats();
+}
+
+void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_t path_len, const uint8_t *path) {
+  Serial.printf("ADVERT from -> %s\n", contact.name);
+  Serial.printf("  type: %s\n", getTypeName(contact.type));
+  Serial.print("   public key: ");
+  mesh::Utils::printHex(Serial, contact.id.pub_key, PUB_KEY_SIZE);
+  Serial.println();
+  saveContacts();
+  if (is_new && contact.type == ADV_TYPE_REPEATER) {
+    sprintf(message, "Бип бип бип, обнаружен новый репитер: %02X %s", contact.id.pub_key[0], contact.name);
+    sendMessage(message);
+    saveStats();
+  }
 }
 
 MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables)
@@ -360,21 +364,33 @@ void MyMesh::sendSelfAdvert(const int delay_millis) {
 }
 
 void MyMesh::sendMessage(const char *message) {
-  uint8_t temp[5 + MAX_TEXT_LEN + 32];
-  const uint32_t timestamp = getRTCClock()->getCurrentTime();
-  memcpy(temp, &timestamp, 4); // mostly an extra blob to help make packet_hash unique
-  temp[4] = 0;                 // attempt and flags
+  Serial.printf("%s\n", message);
+  if (!quiet && _ms->getMillis() - last_msg_sent > QUIET_LIMIT_SECONDS * 1000) { // QUIET_LIMIT_SECONDS sec
+    // pause for QUIET_LIMIT_PAUSE seconds before reply
+    // delay(QUIET_LIMIT_PAUSE * 1000);
 
-  sprintf(reinterpret_cast<char *>(&temp[5]), "%s: %s", _prefs.node_name, &message[0]); // <sender>: <msg>
-  temp[5 + MAX_TEXT_LEN] = 0; // truncate if too long
+    uint8_t temp[5 + MAX_TEXT_LEN + 32];
+    const uint32_t timestamp = getRTCClock()->getCurrentTime();
+    memcpy(temp, &timestamp, 4); // mostly an extra blob to help make packet_hash unique
+    temp[4] = 0;                 // attempt and flags
 
-  const unsigned int len = strlen(reinterpret_cast<char *>(&temp[5]));
-  const auto pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, _public->channel, temp, 5 + len);
-  if (pkt) {
-    sendFlood(pkt);
-    Serial.println("   Sent.");
+    sprintf(reinterpret_cast<char *>(&temp[5]), "%s: %s", _prefs.node_name, &message[0]); // <sender>: <msg>
+    temp[5 + MAX_TEXT_LEN] = 0; // truncate if too long
+
+    const unsigned int len = strlen(reinterpret_cast<char *>(&temp[5]));
+    const auto pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, _public->channel, temp, 5 + len);
+    if (pkt) {
+      sendFlood(pkt);
+      Serial.println("   Sent.");
+    } else {
+      Serial.println("   ERROR: unable to send");
+    }
+
+    last_msg_sent = _ms->getMillis();
+    _stats.total_sent++;
   } else {
-    Serial.println("   ERROR: unable to send");
+    Serial.printf("Quiet please!\n");
+    _stats.total_ignores++;
   }
 }
 
