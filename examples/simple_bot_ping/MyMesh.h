@@ -22,8 +22,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.0.5"
-#define FIRMWARE_BUILD_TEXT "2026-03-02"
+#define FIRMWARE_VER_TEXT   "v1.1.0"
+#define FIRMWARE_BUILD_TEXT "2026-03-03"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -57,18 +57,9 @@
 
 /* -------------------------------------------------------------------------------------- */
 
-class MyMesh : public BaseChatMesh, ContactVisitor {
-  FILESYSTEM *_fs;
-  NodePrefs _prefs;
-  ChannelDetails *_public;
-  unsigned long last_msg_sent = 0;
-  unsigned long last_msg_rcvd = 0;
-  unsigned long last_msg_times[QUIET_LIMIT_TIMES];
-  unsigned int last_msg_count = 0;
-
-  char repeaters_names[255][33];
-  unsigned int first_repeaters_count[255];
-  unsigned int all_repeaters_count[255];
+struct NodeStats {
+  unsigned int first_repeaters_count[255]{};
+  unsigned int all_repeaters_count[255]{};
 
   unsigned int total_request = 0;
   unsigned int total_received = 0;
@@ -77,11 +68,30 @@ class MyMesh : public BaseChatMesh, ContactVisitor {
   unsigned int total_ignores = 0;
   unsigned int total_hops = 0;
 
+  unsigned int max_hops = 0;
+  char max_path[255]{};
+
   unsigned long time_start = 0;
+};
+
+class MyMesh : public BaseChatMesh, ContactVisitor {
+  FILESYSTEM *_fs;
+  NodePrefs _prefs;
+  NodeStats _stats;
+  ChannelDetails *_public;
+
+  unsigned long last_msg_sent = 0;
+  unsigned long last_msg_rcvd = 0;
+  unsigned long last_msg_times[QUIET_LIMIT_TIMES];
+  unsigned int last_msg_count = 0;
+  unsigned long time_start = 0;
+
+  char repeaters_names[255][33];
 
   char command[512 + 10];
   uint8_t tmp_buf[256];
   char hex_buf[512];
+
   bool clock_set = false;
   bool quiet = false;
 
@@ -89,6 +99,8 @@ class MyMesh : public BaseChatMesh, ContactVisitor {
 
   void loadContacts();
   void saveContacts();
+  void saveStats();
+  void loadStats();
   void setClock(uint32_t timestamp);
 
 protected:
@@ -194,11 +206,11 @@ public:
 
   bool getQuiet() const { return quiet; }
 
-  unsigned long getTotalReceived() const { return total_received; }
+  unsigned long getTotalReceived() const { return _stats.total_received; }
 
-  unsigned long getTotalRequested() const { return total_request; }
+  unsigned long getTotalRequested() const { return _stats.total_request; }
 
-  unsigned long getTotalSent() const { return total_sent; }
+  unsigned long getTotalSent() const { return _stats.total_sent; }
 
   unsigned long getTenReceived() const { return last_msg_count; }
 

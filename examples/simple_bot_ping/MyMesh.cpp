@@ -84,6 +84,35 @@ void MyMesh::saveContacts() {
   }
 }
 
+void MyMesh::saveStats() {
+#if defined(NRF52_PLATFORM)
+  _fs->remove("/node_stats");
+  File file = _fs->open("/node_stats", FILE_O_WRITE);
+#elif defined(RP2040_PLATFORM)
+  File file = _fs->open("/node_stats", "w");
+#else
+  File file = _fs->open("/node_stats", "w", true);
+#endif
+  if (file) {
+    file.write(reinterpret_cast<const uint8_t *>(&_stats), sizeof(_stats));
+    file.close();
+  }
+}
+
+void MyMesh::loadStats() {
+  if (_fs->exists("/node_stats")) {
+#if defined(RP2040_PLATFORM)
+    File file = _fs->open("/node_stats", "r");
+#else
+    File file = _fs->open("/node_stats");
+#endif
+    if (file) {
+      file.read(&_stats, sizeof(_stats));
+      file.close();
+    }
+  }
+}
+
 void MyMesh::setClock(const uint32_t timestamp) {
   const uint32_t curr = getRTCClock()->getCurrentTime();
   if (timestamp > curr) {
@@ -103,7 +132,11 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
     clock_set = true;
   }
 
-  total_received++;
+  if (_stats.time_start == 0 && clock_set) {
+    _stats.time_start = timestamp + 1;
+  }
+
+  _stats.total_received++;
   last_msg_rcvd = _ms->getMillis();
 
   int j = 0;
@@ -137,17 +170,22 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
           offset += snprintf(_path + offset, sizeof(_path) - offset, "%02X,", pkt->path[i]);
           if (i == 0) {
             // first repeaters count
-            first_repeaters_count[pkt->path[i]]++;
+            _stats.first_repeaters_count[pkt->path[i]]++;
           }
-          all_repeaters_count[pkt->path[i]]++;
+          _stats.all_repeaters_count[pkt->path[i]]++;
         }
 
         if (offset > 0) {
           _path[offset - 1] = '\0';
         }
+
+        if (pkt->path_len >= _stats.max_hops) {
+          _stats.max_hops = pkt->path_len;
+          sprintf(_stats.max_path, "%s в %d %s: %s", _from, pkt->path_len, hop_word(pkt->path_len), _path);
+        }
         sprintf(message, "@[%s] %d %s с %s: %s", _from, pkt->path_len, hop_word(pkt->path_len),
                 repeaters_names[pkt->path[0]], _path);
-        total_hops = total_hops + pkt->path_len;
+        _stats.total_hops = _stats.total_hops + pkt->path_len;
       }
     }
 
@@ -160,22 +198,32 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
         char uptime[32];
         format_uptime(getRTCClock()->getCurrentTime() - time_start - 1, uptime, sizeof(uptime));
         int reps = 0;
-        for (const unsigned int v : all_repeaters_count) {
+        for (const unsigned int v : _stats.all_repeaters_count) {
           if (v > 0) {
             reps++;
           }
         }
         sprintf(message,
                 "Стата:\n uptime: %s\n ответы: %d из %d\n канал: %d, за %dм: %d\n хопы: %d, репы: %d", uptime,
-                total_sent, total_request, total_received, QUIET_LIMIT_TIME, last_msg_count, total_hops,
-                reps);
+                _stats.total_sent, _stats.total_request, _stats.total_received, QUIET_LIMIT_TIME,
+                last_msg_count, _stats.total_hops, reps);
       }
 
       // thanks
       if (strstr(_text, "спасибо") != nullptr || strstr(_text, "thank") != nullptr ||
           strstr(_text, "Спасибо") != nullptr || strstr(_text, "Thank") != nullptr) {
-        total_thanks++;
-        sprintf(message, "@[%s] вот так нихера себе, кто-то сказал спасибо №%d!", _from, total_thanks);
+        _stats.total_thanks++;
+        sprintf(message, "@[%s] вот так нихера себе, кто-то сказал спасибо №%d!", _from, _stats.total_thanks);
+      }
+
+      // path max
+      if (strstr(_text, "рекорд") != nullptr || strstr(_text, "record") != nullptr ||
+          strstr(_text, "Рекорд") != nullptr || strstr(_text, "Record") != nullptr) {
+        if (_stats.max_hops > 5) {
+          sprintf(message, "%s", _stats.max_path);
+        } else {
+          sprintf(message, "@[%s] сорян, пока не зафиксирован длинный путь в этом канале", _from);
+        }
       }
 
       // weather
@@ -192,7 +240,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
         int o_idx1 = -1, o_idx2 = -1, o_idx3 = -1;
 
         for (int i = 0; i < 255; i++) {
-          const unsigned int o_val = first_repeaters_count[i];
+          const unsigned int o_val = _stats.first_repeaters_count[i];
 
           if (o_val > o_max1) {
             o_max3 = o_max2;
@@ -224,19 +272,21 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   }
 
   if (message[0] != 0) {
-    total_request++;
+    _stats.total_request++;
     Serial.printf("%s\n", message);
     if (!quiet && _ms->getMillis() - last_msg_sent > QUIET_LIMIT_SECONDS * 1000) { // QUIET_LIMIT_SECONDS sec
       // pause for QUIET_LIMIT_PAUSE seconds before reply
       // delay(QUIET_LIMIT_PAUSE * 1000);
       sendMessage(message);
       last_msg_sent = _ms->getMillis();
-      total_sent++;
+      _stats.total_sent++;
     } else {
       Serial.printf("Quiet please!\n");
-      total_ignores++;
+      _stats.total_ignores++;
     }
   }
+
+  saveStats();
 }
 
 MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables)
@@ -261,8 +311,6 @@ MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshT
   clock_set = false;
 
   for (size_t i = 0; i < 255; i++) {
-    first_repeaters_count[i] = 0;
-    all_repeaters_count[i] = 0;
     snprintf(repeaters_names[i], 32, "UnknownRepeater");
   }
 }
@@ -300,6 +348,7 @@ void MyMesh::begin(FILESYSTEM &fs) {
   }
 
   loadContacts();
+  loadStats();
   _public = addChannel(PUBLIC_GROUP_NAME, PUBLIC_GROUP_PSK); // pre-configure public channel
 }
 
@@ -361,12 +410,15 @@ void MyMesh::handleCommand(const char *command) {
     sprintf(message,
             "Bot stats:\n uptime: %s\n requests: %d\n replies: %d\n for %dm: %d\n thanks: %d\n ignores: %d\n "
             "total: %d\n hops: %d",
-            uptime, total_request, total_sent, QUIET_LIMIT_TIME, last_msg_count, total_thanks, total_ignores,
-            total_received, total_hops);
+            uptime, _stats.total_request, _stats.total_sent, QUIET_LIMIT_TIME, last_msg_count,
+            _stats.total_thanks, _stats.total_ignores, _stats.total_received, _stats.total_hops);
     Serial.println(message);
+  } else if (memcmp(command, "stats reset", 11) == 0) {
+    _stats = {};
+    Serial.println("   (stats reset).");
   } else if (memcmp(command, "repeaters", 9) == 0) {
     for (int i = 0; i < 255; i++) {
-      sprintf(message, "%02X - %s - %d", i, repeaters_names[i], all_repeaters_count[i]);
+      sprintf(message, "%02X - %s - %d", i, repeaters_names[i], _stats.all_repeaters_count[i]);
       Serial.println(message);
     }
   } else if (memcmp(command, "shutdown", 8) == 0) {
@@ -378,6 +430,7 @@ void MyMesh::handleCommand(const char *command) {
     Serial.println("   clock");
     Serial.println("   advert");
     Serial.println("   stats");
+    Serial.println("   stats reset");
     Serial.println("   repeaters");
     Serial.println("   quiet");
     Serial.println("   reboot");
