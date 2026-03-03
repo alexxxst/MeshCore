@@ -1,4 +1,5 @@
 #include "MyMesh.h"
+#include "RTClib.h"
 
 void MyMesh::loadContacts() {
   if (_fs->exists("/contacts")) {
@@ -294,6 +295,7 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
 }
 
 MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables)
+    // ReSharper disable CppDFAMemoryLeak
     : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables) {
   // defaults
   memset(&_prefs, 0, sizeof(_prefs));
@@ -312,10 +314,13 @@ MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshT
 
   command[0] = 0;
   message[0] = 0;
+  tmp_buf[0] = 0;
+  hex_buf[0] = 0;
+  hex_buf[0] = 0;
   clock_set = false;
 
-  for (size_t i = 0; i < 255; i++) {
-    snprintf(repeaters_names[i], 32, "UnknownRepeater");
+  for (auto & repeaters_name : repeaters_names) {
+    snprintf(repeaters_name, 32, "UnknownRepeater");
   }
 }
 
@@ -340,7 +345,8 @@ void MyMesh::begin(FILESYSTEM &fs) {
     while (c != '\n') { // wait for ENTER to be pressed
       if (Serial.available()) c = Serial.read();
     }
-    ((StdRNG *)getRNG())->begin(static_cast<long>(millis()));
+
+    static_cast<StdRNG *>(getRNG())->begin(static_cast<long>(millis())); // NOLINT(cppcoreguidelines-pro-type-static-cast-downcast)
 
     self_id = mesh::LocalIdentity(getRNG()); // create new random identity
     int count = 0;
