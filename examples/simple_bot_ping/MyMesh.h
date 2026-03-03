@@ -13,7 +13,6 @@
 #include <SPIFFS.h>
 #endif
 
-#include <RTClib.h>
 #include <helpers/ArduinoHelpers.h>
 #include <helpers/IdentityStore.h>
 #include <helpers/SimpleMeshTables.h>
@@ -74,28 +73,29 @@ struct NodeStats {
   unsigned long time_start = 0;
 };
 
+// ReSharper disable once CppPolymorphicClassWithNonVirtualPublicDestructor
 class MyMesh : public BaseChatMesh, ContactVisitor {
-  FILESYSTEM *_fs;
-  NodePrefs _prefs;
-  NodeStats _stats;
-  ChannelDetails *_public;
+  FILESYSTEM *_fs{};
+  NodePrefs _prefs{};
+  NodeStats _stats{};
+  ChannelDetails *_public{};
 
   unsigned long last_msg_sent = 0;
   unsigned long last_msg_rcvd = 0;
-  unsigned long last_msg_times[QUIET_LIMIT_TIMES];
+  unsigned long last_msg_times[QUIET_LIMIT_TIMES]{};
   unsigned int last_msg_count = 0;
   unsigned long time_start = 0;
 
-  char repeaters_names[255][33];
+  char repeaters_names[255][33]{};
 
-  char command[512 + 10];
-  uint8_t tmp_buf[256];
-  char hex_buf[512];
+  char command[512 + 10]{};
+  uint8_t tmp_buf[256]{};
+  char hex_buf[512]{};
 
   bool clock_set = false;
   bool quiet = false;
 
-  char message[256];
+  char message[256]{};
 
   void loadContacts();
   void saveContacts();
@@ -216,5 +216,6 @@ public:
   void sendSelfAdvert(int delay_millis);
   void sendMessage(const char *message);
   void handleCommand(const char *command);
+  // ReSharper disable once CppHidingFunction
   void loop();
 };
