@@ -21,14 +21,14 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.1.0"
-#define FIRMWARE_BUILD_TEXT "2026-03-03"
+#define FIRMWARE_VER_TEXT   "v1.1.1"
+#define FIRMWARE_BUILD_TEXT "2026-03-04"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
 #define LORA_SF             8
-#define LORA_CR             5
-#define LORA_TX_POWER       10
+#define LORA_CR             6
+#define LORA_TX_POWER       22
 
 #ifndef MAX_CONTACTS
 #define MAX_CONTACTS 350
