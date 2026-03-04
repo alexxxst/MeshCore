@@ -163,7 +163,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
         strncmp(_text, "пинг", 8) == 0 || strncmp(_text, "Пинг", 8) == 0 || strncmp(_text, "тест", 8) == 0 ||
         strncmp(_text, "Тест", 8) == 0) {
       if (pkt->isRouteDirect() || pkt->path_len == 0) {
-        sprintf(message, "@[%s] директ c SNR %03.2f dB", _from, pkt->getSNR());
+        sprintf(message, "@[%s] диpeкт c SNR %03.2f dB", _from, pkt->getSNR());
       } else {
         char _path[3 * pkt->path_len + 1];
         unsigned int offset = 0;
@@ -184,7 +184,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
           _stats.max_hops = pkt->path_len;
           sprintf(_stats.max_path, "%s в %d %s: %s", _from, pkt->path_len, hop_word(pkt->path_len), _path);
         }
-        sprintf(message, "@[%s] %d %s с %s: %s", _from, pkt->path_len, hop_word(pkt->path_len),
+        sprintf(message, "@[%s] %d %s c %s: %s", _from, pkt->path_len, hop_word(pkt->path_len),
                 repeaters_names[pkt->path[0]], _path);
         _stats.total_hops = _stats.total_hops + pkt->path_len;
       }
@@ -197,7 +197,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
       if (strstr(_text, "stats") != nullptr || strstr(_text, "статистика") != nullptr ||
           strstr(_text, "Stats") != nullptr || strstr(_text, "Статистика") != nullptr) {
         char uptime[32];
-        format_uptime(getRTCClock()->getCurrentTime() - time_start - 1, uptime, sizeof(uptime));
+        format_uptime(getRTCClock()->getCurrentTime() - _stats.time_start - 1, uptime, sizeof(uptime));
         int reps = 0;
         for (const unsigned int v : _stats.all_repeaters_count) {
           if (v > 0) {
@@ -205,16 +205,24 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
           }
         }
         sprintf(message,
-                "Стата:\n uptime: %s\n ответы: %d из %d\n канал: %d, за %dм: %d\n хопы: %d, репы: %d", uptime,
+                "Cтaтa зa: %s\n oтвeты: %d из %d\n кaнaл: %d, зa %dм: %d\n хoпы: %d, peпы: %d", uptime,
                 _stats.total_sent, _stats.total_request, _stats.total_received, QUIET_LIMIT_TIME,
                 last_msg_count, _stats.total_hops, reps);
       }
+
+      // uptime
+      if (strstr(_text, "uptime") != nullptr || strstr(_text, "аптайм") != nullptr ||
+          strstr(_text, "Uptime") != nullptr || strstr(_text, "Аптайм") != nullptr) {
+        char uptime[32];
+        format_uptime(getRTCClock()->getCurrentTime() - time_start - 1, uptime, sizeof(uptime));
+        sprintf(message, "Uptime %s", uptime);
+          }
 
       // thanks
       if (strstr(_text, "спасибо") != nullptr || strstr(_text, "thank") != nullptr ||
           strstr(_text, "Спасибо") != nullptr || strstr(_text, "Thank") != nullptr) {
         _stats.total_thanks++;
-        sprintf(message, "@[%s] вот так нихера себе, кто-то сказал спасибо №%d!", _from, _stats.total_thanks);
+        sprintf(message, "@[%s] вoт тaк нихepa ceбe, ктo-тo cкaзaл cпacибo №%d!", _from, _stats.total_thanks);
       }
 
       // path max
@@ -223,15 +231,26 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
         if (_stats.max_hops > 5) {
           sprintf(message, "%s", _stats.max_path);
         } else {
-          sprintf(message, "@[%s] сорян, пока не зафиксирован длинный путь в этом канале", _from);
+          sprintf(message, "@[%s] copян, пoкa нe зaфикcиpoвaн длинный пyть в этoм кaнaлe", _from);
         }
       }
 
       // weather
       if (strstr(_text, "погода") != nullptr || strstr(_text, "weather") != nullptr ||
           strstr(_text, "Погода") != nullptr || strstr(_text, "Weather") != nullptr) {
-        sprintf(message, "@[%s] бля, ну в окно выгляни! Какой смысл от моих датчиков?", _from);
+        sprintf(message, "@[%s] бля, нy в oкнo выгляни! Kaкoй cмыcл oт мoиx дaтчикoв?", _from);
       }
+
+      // бля
+      if (strstr(_text, "бля") != nullptr || strstr(_text, "Бля") != nullptr) {
+        sprintf(message, "@[%s] oт бля cлышy.", _from);
+          }
+
+      // meow
+      if (strstr(_text, "мяу") != nullptr || strstr(_text, "meow") != nullptr ||
+          strstr(_text, "Мяу") != nullptr || strstr(_text, "Meow") != nullptr) {
+        sprintf(message, "@[%s] кc-кc-кc, нy иди cюдa, пoглaжy!", _from);
+          }
 
       // repeaters
       if (strstr(_text, "репитеры") != nullptr || strstr(_text, "repeaters") != nullptr ||
@@ -262,11 +281,11 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
         }
 
         if (o_idx3 > 0) {
-          sprintf(message, "Исходящие топ-3 репы:\n%02X %s - %d\n%02X %s - %d\n%02X %s - %d", o_idx1,
+          sprintf(message, "Иcxoдящиe тoп-3 peпы:\n%02X %s - %d\n%02X %s - %d\n%02X %s - %d", o_idx1,
                   repeaters_names[o_idx1], o_max1, o_idx2, repeaters_names[o_idx2], o_max2, o_idx3,
                   repeaters_names[o_idx3], o_max3);
         } else {
-          sprintf(message, "@[%s] сорян, пока не набрался топ репитеров в этом канале", _from);
+          sprintf(message, "@[%s] copян, пoкa нe нaбpaлcя тoп peпитepoв в этoм кaнaлe", _from);
         }
       }
     }
@@ -287,8 +306,8 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
   mesh::Utils::printHex(Serial, contact.id.pub_key, PUB_KEY_SIZE);
   Serial.println();
   saveContacts();
-  if (is_new && contact.type == ADV_TYPE_REPEATER) {
-    sprintf(message, "Бип бип бип, обнаружен новый репитер: %02X %s", contact.id.pub_key[0], contact.name);
+  if (contact.type == ADV_TYPE_REPEATER && strncmp(repeaters_names[contact.id.pub_key[0]], contact.name, 32) != 0) {
+    sprintf(message, "Бип бип бип, oбнapyжeн нoвый peпитep: %02X %s", contact.id.pub_key[0], contact.name);
     sendMessage(message);
     saveStats();
   }
@@ -428,9 +447,9 @@ void MyMesh::handleCommand(const char *command) {
     board.reboot();
   } else if (memcmp(command, "stats", 5) == 0) {
     char uptime[32];
-    format_uptime(getRTCClock()->getCurrentTime() - time_start - 1, uptime, sizeof(uptime));
+    format_uptime(getRTCClock()->getCurrentTime() - _stats.time_start - 1, uptime, sizeof(uptime));
     sprintf(message,
-            "Bot stats:\n uptime: %s\n requests: %d\n replies: %d\n for %dm: %d\n thanks: %d\n ignores: %d\n "
+            "Bot stats:\n stat time start: %s\n requests: %d\n replies: %d\n for %dm: %d\n thanks: %d\n ignores: %d\n "
             "total: %d\n hops: %d",
             uptime, _stats.total_request, _stats.total_sent, QUIET_LIMIT_TIME, last_msg_count,
             _stats.total_thanks, _stats.total_ignores, _stats.total_received, _stats.total_hops);
