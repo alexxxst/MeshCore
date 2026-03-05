@@ -32,7 +32,7 @@ void MyMesh::loadContacts() {
         c.id = mesh::Identity(pub_key);
         c.lastmod = 0;
 
-        if (c.type == ADV_TYPE_REPEATER) {
+        if (c.type == ADV_TYPE_REPEATER && checkRepeaterNamePattern(c.name)) {
           sprintf(repeaters_names[pub_key[0]], "%s", c.name);
           // sprintf(message, "Loaded %02X %s", pub_key[0], c.name);
           // Serial.println(message);
@@ -61,7 +61,7 @@ void MyMesh::saveContacts() {
     uint32_t reserved = 0;
 
     while (iter.hasNext(this, c)) {
-      if (c.type == ADV_TYPE_REPEATER) {
+      if (c.type == ADV_TYPE_REPEATER && checkRepeaterNamePattern(c.name)) {
         bool success = (file.write(c.id.pub_key, 32) == 32);
         success = success && (file.write(reinterpret_cast<uint8_t *>(&c.name), 32) == 32);
         success = success && (file.write(&c.type, 1) == 1);
@@ -306,7 +306,7 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
   mesh::Utils::printHex(Serial, contact.id.pub_key, PUB_KEY_SIZE);
   Serial.println();
   saveContacts();
-  if (contact.type == ADV_TYPE_REPEATER && strncmp(repeaters_names[contact.id.pub_key[0]], contact.name, 32) != 0) {
+  if (contact.type == ADV_TYPE_REPEATER && checkRepeaterNamePattern(contact.name) && strncmp(repeaters_names[contact.id.pub_key[0]], contact.name, 32) != 0) {
     sprintf(message, "Бип бип бип, oбнapyжeн нoвый peпитep: %02X %s", contact.id.pub_key[0], contact.name);
     sendMessage(message);
     saveStats();
@@ -419,6 +419,28 @@ void MyMesh::sendMessage(const char *message) {
   }
 }
 
+void MyMesh::importCard(const char* command) {
+  while (*command == ' ') command++;   // skip leading spaces
+  if (memcmp(command, "meshcore://", 11) == 0) {
+    command += 11;  // skip the prefix
+    char *ep = strchr(command, 0);  // find end of string
+    while (ep > command) {
+      ep--;
+      if (mesh::Utils::isHexChar(*ep)) break;  // found tail end of card
+      *ep = 0;  // remove trailing spaces and other junk
+    }
+    uint8_t len = strlen(command);
+    if (len % 2 == 0) {
+      len >>= 1;  // halve, for num bytes
+      if (mesh::Utils::fromHex(tmp_buf, len, command)) {
+        importContact(tmp_buf, len);
+        return;
+      }
+    }
+  }
+  Serial.println("   error: invalid format");
+}
+
 void MyMesh::handleCommand(const char *command) {
   while (*command == ' ')
     command++; // skip leading spaces
@@ -443,6 +465,8 @@ void MyMesh::handleCommand(const char *command) {
     }
   } else if (memcmp(command, "ver", 3) == 0) {
     Serial.println(FIRMWARE_VER_TEXT);
+  } else if (memcmp(command, "import ", 7) == 0) {
+    importCard(&command[7]);
   } else if (memcmp(command, "reboot", 6) == 0) {
     board.reboot();
   } else if (memcmp(command, "stats", 5) == 0) {
@@ -470,6 +494,7 @@ void MyMesh::handleCommand(const char *command) {
     Serial.println("Commands:");
     Serial.println("   clock");
     Serial.println("   advert");
+    Serial.println("   import {biz card}");
     Serial.println("   stats");
     Serial.println("   stats reset");
     Serial.println("   repeaters");
