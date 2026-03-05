@@ -36,7 +36,7 @@
 
 #include <helpers/BaseChatMesh.h>
 
-#define SEND_TIMEOUT_BASE_MILLIS        500
+#define SEND_TIMEOUT_BASE_MILLIS        1000
 #define FLOOD_SEND_TIMEOUT_FACTOR       16.0f
 #define DIRECT_SEND_PERHOP_FACTOR       6.0f
 #define DIRECT_SEND_PERHOP_EXTRA_MILLIS 250
