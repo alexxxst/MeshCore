@@ -1,6 +1,4 @@
-# CLI Commands
-
-This document provides an overview of CLI commands that can be sent to MeshCore Repeaters, Room Servers and Sensors.
+# MeshCore Repeater & Room Server CLI Commands
 
 ## Navigation
 
@@ -53,7 +51,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 - `time <epoch_seconds>`
 
 **Parameters:**
-- `epoch_seconds`: Unix epoch time
+- `epoc_seconds`: Unix epoc time
 
 ---
 
@@ -136,7 +134,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 ---
 
-### End capture of rx log to node storage
+### End capture of rx log to node sotrage
 **Usage:** `log stop`
 
 ---
@@ -200,7 +198,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 **Default:** Varies by board
 
-**Notes:** This setting only controls the power level of the LoRa chip. Some nodes have an additional power amplifier stage which increases the total output. Refer to the node's manual for the correct setting to use. **Setting a value too high may violate the laws in your country.**
+**Notes:** This setting only controls the power level of the LoRa chip. Some nodes have an additional power amplifier stage which increases the total output. Referr to the node's manual for the correct setting to use. **Setting a value too high may violate the laws in your country.**
 
 ---
 
@@ -230,7 +228,6 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 **Default:** `869.525`
 
 **Note:** Requires reboot to apply
-**Serial Only:** `set freq <frequency>`
 
 ### System
 
@@ -296,16 +293,17 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 #### View or change this node's admin password
 **Usage:**
-- `password <new_password>`
+- `get password`
+- `set password <password>`
 
 **Parameters:**
-- `new_password`: New admin password
+- `password`: Admin password
 
 **Set by build flag:** `ADMIN_PASSWORD`
 
 **Default:** `password`
 
-**Note:** Command reply echoes the updated password for confirmation.
+**Note:** Echoed back for confirmation
 
 **Note:** Any node using this password will be added to the admin ACL list.
 
@@ -770,7 +768,7 @@ region save
 - `gps advert <policy>`
 
 **Parameters:** 
-- `policy`: `none`|`share`|`prefs` 
+- `policy`: `none`|`shared`|`prefs` 
   - `none`: don't include location in adverts
   - `share`: share gps location (from SensorManager)
   - `prefs`: location stored in node's lat and lon settings
