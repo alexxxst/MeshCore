@@ -21,8 +21,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.1.1"
-#define FIRMWARE_BUILD_TEXT "2026-03-04"
+#define FIRMWARE_VER_TEXT   "v1.1.2"
+#define FIRMWARE_BUILD_TEXT "2026-03-05"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -102,6 +102,7 @@ class MyMesh : public BaseChatMesh, ContactVisitor {
   void saveStats();
   void loadStats();
   void setClock(uint32_t timestamp);
+  void importCard(const char* command);
 
 protected:
   static const char *getTypeName(const uint8_t type) {
@@ -132,6 +133,20 @@ protected:
       snprintf(buf, buf_size, "%uч %uм", h, m);
     else
       snprintf(buf, buf_size, "%uм", m);
+  }
+
+  static bool checkRepeaterNamePattern(const char* s)
+  {
+    if (strlen(s) < 5) return false;
+    return
+        (((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z')) &&
+        ((s[1] >= 'A' && s[1] <= 'Z') || (s[1] >= 'a' && s[1] <= 'z')) &&
+        ((s[2] >= 'A' && s[2] <= 'Z') || (s[2] >= 'a' && s[2] <= 'z')) &&
+        (s[3] == '-' || s[3] == '_')) || (strlen(s) > 7 &&
+          (s[0] == 'L' || s[0] == 'l') && (s[1] == 'O' || s[1] == 'o') &&
+            (s[2] == '-' || s[2] == '_') && ((s[3] >= 'A' && s[3] <= 'Z') || (s[3] >= 'a' && s[3] <= 'z')) &&
+            ((s[4] >= 'A' && s[4] <= 'Z') || (s[4] >= 'a' && s[4] <= 'z')) &&
+            ((s[5] >= 'A' && s[5] <= 'Z') || (s[5] >= 'a' && s[5] <= 'z')) && (s[6] == '-' || s[6] == '_'));
   }
 
   void onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint32_t timestamp,
