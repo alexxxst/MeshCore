@@ -17,13 +17,13 @@ void MyMesh::loadContacts() {
         uint32_t reserved;
 
         bool success = (file.read(pub_key, 32) == 32);
-        success = success && (file.read(&c.name, 32) == 32);
+        success = success && (file.read(reinterpret_cast<uint8_t *>(&c.name), 32) == 32);
         success = success && (file.read(&c.type, 1) == 1);
         success = success && (file.read(&c.flags, 1) == 1);
         success = success && (file.read(&unused, 1) == 1);
-        success = success && (file.read(&reserved, 4) == 4);
+        success = success && (file.read(reinterpret_cast<uint8_t *>(&reserved), 4) == 4);
         success = success && (file.read(&c.out_path_len, 1) == 1);
-        success = success && (file.read(&c.last_advert_timestamp, 4) == 4);
+        success = success && (file.read(reinterpret_cast<uint8_t *>(&c.last_advert_timestamp), 4) == 4);
         success = success && (file.read(c.out_path, 64) == 64);
         c.gps_lat = c.gps_lon = 0; // not yet supported
 
@@ -108,7 +108,7 @@ void MyMesh::loadStats() {
     File file = _fs->open("/node_stats");
 #endif
     if (file) {
-      file.read(&_stats, sizeof(_stats));
+      file.read(reinterpret_cast<uint8_t *>(&_stats), sizeof(_stats));
       file.close();
     }
   }
