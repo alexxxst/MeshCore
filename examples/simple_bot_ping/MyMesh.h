@@ -27,7 +27,7 @@
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
 #define LORA_SF             8
-#define LORA_CR             6
+#define LORA_CR             5
 #define LORA_TX_POWER       22
 
 #ifndef MAX_CONTACTS

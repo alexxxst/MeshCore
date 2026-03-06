@@ -305,12 +305,12 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
   Serial.print("   public key: ");
   mesh::Utils::printHex(Serial, contact.id.pub_key, PUB_KEY_SIZE);
   Serial.println();
-  saveContacts();
   if (contact.type == ADV_TYPE_REPEATER && checkRepeaterNamePattern(contact.name) && strncmp(repeaters_names[contact.id.pub_key[0]], contact.name, 32) != 0) {
     sprintf(message, "Бип бип бип, oбнapyжeн нoвый peпитep: %02X %s", contact.id.pub_key[0], contact.name);
     sendMessage(message);
     saveStats();
   }
+  saveContacts();
 }
 
 MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables)
