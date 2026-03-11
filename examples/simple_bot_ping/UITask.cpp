@@ -81,6 +81,8 @@ void UITask::renderCurrScreen() {
 }
 
 void UITask::loop(const bool quiet, const unsigned long total_request, const unsigned long total_sent, const unsigned long time, const unsigned long last_msg_count) {
+
+  // user button
 #ifdef PIN_USER_BTN
   if (millis() >= _next_read) {
     const int btnState = digitalRead(PIN_USER_BTN);
@@ -98,6 +100,8 @@ void UITask::loop(const bool quiet, const unsigned long total_request, const uns
     _next_read = millis() + 200;  // 5 reads per second
   }
 #endif
+
+  // backlite button
 #if defined(BACKLIGHT_BTN)
   if (millis() > next_backlight_btn_check) {
     const bool touch_state = digitalRead(PIN_BUTTON2);
@@ -134,11 +138,23 @@ void UITask::loop(const bool quiet, const unsigned long total_request, const uns
     }
   }
 
-  if (millis() >= _led_reset) {
+  // power off blue LED
 #ifdef LED_BLUE
+  if (millis() >= _led_reset) {
     digitalWrite(LED_BLUE, HIGH);
-#endif
     _led_reset = millis() + 500;
   }
+#endif
+
+  // sync tyme from GPS
+#if ENV_INCLUDE_GPS
+  if (millis() >= _gps_sync) {
+    LocationProvider *nmea = sensors.getLocationProvider();
+    if (nmea != nullptr) {
+      nmea->syncTime();
+    }
+    _gps_sync = millis() + 1200000;
+  }
+#endif
 
 }

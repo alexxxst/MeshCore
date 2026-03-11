@@ -4,7 +4,7 @@
 
 class UITask {
   DisplayDriver* _display;
-  unsigned long _next_read = 0, _next_refresh = 0, _led_reset = 0, _auto_off = 0;
+  unsigned long _next_read = 0, _next_refresh = 0, _led_reset = 0, _gps_sync = 0, _auto_off = 0;
   int _prevBtnState{};
   char _info[32]{};
   char _time[32]{};
