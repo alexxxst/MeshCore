@@ -21,7 +21,7 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.2.1"
+#define FIRMWARE_VER_TEXT   "v1.2.2"
 #define FIRMWARE_BUILD_TEXT "2026-03-11"
 
 #define LORA_FREQ           868.856
@@ -36,7 +36,6 @@
 
 #include <helpers/BaseChatMesh.h>
 
-#define CTL_TYPE_NODE_DISCOVER_REQ      0x80
 #define SEND_TIMEOUT_BASE_MILLIS        1000
 #define FLOOD_SEND_TIMEOUT_FACTOR       16.0f
 #define DIRECT_SEND_PERHOP_FACTOR       6.0f
@@ -88,9 +87,6 @@ class MyMesh : public BaseChatMesh {
   NodePrefs _prefs{};
   NodeStats _stats{};
   ChannelDetails *_public{};
-
-  uint32_t pending_discover_tag = 0;
-  unsigned long pending_discover_until = 0;
 
   unsigned long last_repeater_check = 0;
   unsigned long last_msg_sent = 0;
@@ -240,7 +236,6 @@ public:
   bool isAutoAddEnabled() const override { return true; }
   void begin(FILESYSTEM &fs);
   void sendMessage(const char *message, uint8_t path_hash_size);
-  void sendNodeDiscoverReq();
   void handleCommand(const char *command);
   // ReSharper disable once CppHidingFunction
   void loop();

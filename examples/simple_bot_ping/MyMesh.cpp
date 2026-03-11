@@ -399,7 +399,7 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
       }
     }
     if (repeater != nullptr) {
-      to_send = updateRepeater( *repeater, contact);
+      to_send = updateRepeater(*repeater, contact);
     } else {
       to_send = addRepeater(contact);
     }
@@ -538,9 +538,6 @@ void MyMesh::handleCommand(const char *command) {
   } else if (strcmp(command, "quiet") == 0) {
     quiet = true;
     Serial.println("   (quiet set).");
-  } else if (strcmp(command, "discover") == 0) {
-    sendNodeDiscoverReq();
-    Serial.println("   (discover sent, zero hop).");
   } else if (memcmp(command, "import ", 7) == 0) {
     importCard(&command[7]);
   } else if (memcmp(command, "ver", 3) == 0) {
@@ -576,7 +573,6 @@ void MyMesh::handleCommand(const char *command) {
   } else if (memcmp(command, "help", 4) == 0) {
     Serial.println("Commands:");
     Serial.println("   clock");
-    Serial.println("   discover");
     Serial.println("   import {biz card}");
     Serial.println("   stats");
     Serial.println("   stats reset");
@@ -615,22 +611,6 @@ void MyMesh::loop() {
 
     handleCommand(command);
     command[0] = 0; // reset command buffer
-  }
-}
-
-void MyMesh::sendNodeDiscoverReq() {
-  uint8_t data[10];
-  data[0] = CTL_TYPE_NODE_DISCOVER_REQ; // prefix_only=0
-  data[1] = (1 << ADV_TYPE_REPEATER);
-  getRNG()->random(&data[2], 4); // tag
-  memcpy(&pending_discover_tag, &data[2], 4);
-  pending_discover_until = futureMillis(60000);
-  uint32_t since = 0;
-  memcpy(&data[6], &since, 4);
-
-  auto pkt = createControlData(data, sizeof(data));
-  if (pkt) {
-    sendZeroHop(pkt);
   }
 }
 
