@@ -215,9 +215,10 @@ protected:
   }
 
   uint32_t calcDirectTimeoutMillisFor(const uint32_t pkt_airtime_millis, const uint8_t path_len) const override {
+    const uint8_t path_hash_count = path_len & 63;
     return SEND_TIMEOUT_BASE_MILLIS +
            (static_cast<float>(pkt_airtime_millis) * DIRECT_SEND_PERHOP_FACTOR + DIRECT_SEND_PERHOP_EXTRA_MILLIS) *
-               static_cast<float>(path_len + 1);
+               static_cast<float>(path_hash_count + 1);
   }
 
   void onSendTimeout() override { Serial.println("   ERROR: timed out, no ACK."); }
