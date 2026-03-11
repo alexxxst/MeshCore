@@ -91,6 +91,16 @@ void MyMesh::loadStats() {
 }
 
 void MyMesh::setClock(const uint32_t timestamp) {
+#if ENV_INCLUDE_GPS == 1
+  if (_prefs.gps_enabled) {
+    LocationProvider * nmea = sensors.getLocationProvider();
+    if (nmea != nullptr) {
+      nmea->syncTime();
+      Serial.println("   (GPS clock!)");
+      return;
+    }
+  }
+#endif
   getRTCClock()->setCurrentTime(timestamp);
   time_start = timestamp;
   Serial.println("   (OK - clock set!)");
@@ -126,8 +136,12 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
     clock_set = true;
   }
 
+#ifdef LED_BLUE
+  digitalWrite(LED_BLUE, LOW);
+#endif
+
   if (_stats.time_start == 0 && clock_set) {
-    _stats.time_start = timestamp + 1;
+    _stats.time_start = getRTCClock()->getCurrentTime() + 1;
   }
 
   _stats.total_received++;
@@ -150,7 +164,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 
   // check replay attack with 10 minutes
   if (clock_set && abs(getRTCClock()->getCurrentTime() - timestamp) > 600) {
-    Serial.println("Replay message detected!");
+    Serial.println("   Replay message discarded!");
     return;
   }
 
@@ -385,6 +399,11 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
   Serial.print("   public key: ");
   mesh::Utils::printHex(Serial, contact.id.pub_key, PUB_KEY_SIZE);
   Serial.println();
+
+#ifdef LED_BLUE
+  digitalWrite(LED_BLUE, LOW);
+#endif
+
   if (contact.type == ADV_TYPE_REPEATER && checkRepeaterNamePattern(contact.name)) {
     bool to_send = false;
     // full key search first
@@ -445,6 +464,8 @@ MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshT
   _prefs.rx_delay_base = 1.0;
   _prefs.node_lat = 0.0;
   _prefs.node_lon = 0.0;
+  _prefs.gps_enabled = 1;
+  _prefs.gps_interval = 120;
   _prefs.powersaving_enabled = false;
   _prefs.agc_reset_interval = 4;
   _prefs.path_hash_mode = PATH_HASH_MODE;
@@ -492,6 +513,10 @@ void MyMesh::begin(FILESYSTEM &fs) {
 
   loadStats();
   _public = addChannel(PUBLIC_GROUP_NAME, PUBLIC_GROUP_PSK); // pre-configure public channel
+
+#if ENV_INCLUDE_GPS == 1
+  applyGpsPrefs();
+#endif
 }
 
 void MyMesh::sendMessage(const char *message, const uint8_t path_hash_size) {
@@ -538,6 +563,11 @@ void MyMesh::handleCommand(const char *command) {
   } else if (strcmp(command, "quiet") == 0) {
     quiet = true;
     Serial.println("   (quiet set).");
+  } else if (memcmp(command, "time ", 5) == 0) {
+    _prefs.gps_enabled = false;
+    setClock(strtol(&command[5], nullptr, 10));
+    _prefs.gps_enabled = true;
+    clock_set = true;
   } else if (memcmp(command, "import ", 7) == 0) {
     importCard(&command[7]);
   } else if (memcmp(command, "ver", 3) == 0) {
@@ -573,6 +603,7 @@ void MyMesh::handleCommand(const char *command) {
   } else if (memcmp(command, "help", 4) == 0) {
     Serial.println("Commands:");
     Serial.println("   clock");
+    Serial.println("   time {timestamp}");
     Serial.println("   import {biz card}");
     Serial.println("   stats");
     Serial.println("   stats reset");

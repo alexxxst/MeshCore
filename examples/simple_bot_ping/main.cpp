@@ -26,6 +26,7 @@ void setup() {
   }
 
   fast_rng.begin(static_cast<long>(radio_get_rng_seed()));
+  sensors.begin();
 
 #if defined(NRF52_PLATFORM)
   InternalFS.begin();
@@ -50,9 +51,10 @@ void setup() {
 
 void loop() {
   the_mesh.loop();
+  sensors.loop();
 #ifdef DISPLAY_CLASS
   ui_task.loop(the_mesh.getQuiet(), the_mesh.getTotalRequested(), the_mesh.getTotalSent(),
-               the_mesh.getTotalReceived(), the_mesh.getTenReceived());
+               the_mesh.getRTCClock()->getCurrentTime(), the_mesh.getTenReceived());
 #endif
   rtc_clock.tick();
 }

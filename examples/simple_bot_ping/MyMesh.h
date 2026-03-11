@@ -21,7 +21,7 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.2.2"
+#define FIRMWARE_VER_TEXT   "v1.2.3"
 #define FIRMWARE_BUILD_TEXT "2026-03-11"
 
 #define LORA_FREQ           868.856
@@ -222,6 +222,12 @@ protected:
   }
 
   void onSendTimeout() override { Serial.println("   ERROR: timed out, no ACK."); }
+
+#if ENV_INCLUDE_GPS == 1
+  void applyGpsPrefs() const {
+    sensors.setSettingValue("gps", _prefs.gps_enabled ? "1" : "0");
+  }
+#endif
 
 public:
   MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables);
