@@ -21,33 +21,33 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.1.3"
-#define FIRMWARE_BUILD_TEXT "2026-03-06"
+#define FIRMWARE_VER_TEXT   "v1.2.1"
+#define FIRMWARE_BUILD_TEXT "2026-03-11"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
 #define LORA_SF             8
-#define LORA_CR             5
+#define LORA_CR             6
 #define LORA_TX_POWER       22
 
-#ifndef MAX_CONTACTS
-#define MAX_CONTACTS 350
-#endif
+#define PATH_HASH_MODE      1   // bytes
+#define MAX_GROUP_CHANNELS  1
+#define MAX_CONTACTS        350
 
 #include <helpers/BaseChatMesh.h>
 
+#define CTL_TYPE_NODE_DISCOVER_REQ      0x80
 #define SEND_TIMEOUT_BASE_MILLIS        1000
 #define FLOOD_SEND_TIMEOUT_FACTOR       16.0f
 #define DIRECT_SEND_PERHOP_FACTOR       6.0f
 #define DIRECT_SEND_PERHOP_EXTRA_MILLIS 250
 
-#define MAX_GROUP_CHANNELS              1
-
 #define QUIET_LIMIT_SECONDS             5    // seconds to cooldown
 #define QUIET_LIMIT_TIME                5    // minutes to check
 #define QUIET_LIMIT_COUNT               30   // messages to check
-#define QUIET_LIMIT_TIMES               255  // overall limit for timestamps array
+#define QUIET_LIMIT_TIMES               100  // overall limit for timestamps array
 #define QUIET_LIMIT_PAUSE               2.0f // seconds to reply
+#define OLD_REPEATER_TIME               7    // days
 
 #define BOT_NAME                        "Mr.Pong🏓"
 #define BOT_NAME_PLAIN                  "Mr.Pong"
@@ -56,10 +56,16 @@
 
 /* -------------------------------------------------------------------------------------- */
 
-struct NodeStats {
-  unsigned int first_repeaters_count[255]{};
-  unsigned int all_repeaters_count[255]{};
+struct Repeater {
+  uint8_t pub_key[PUB_KEY_SIZE]{};
+  char name[32]{};
+  unsigned int first_count = 0;
+  unsigned int total_count = 0;
+  unsigned int advert_time = 0;
+  unsigned int update_time = 0;
+};
 
+struct NodeStats {
   unsigned int total_request = 0;
   unsigned int total_received = 0;
   unsigned int total_sent = 0;
@@ -68,41 +74,46 @@ struct NodeStats {
   unsigned int total_hops = 0;
 
   unsigned int max_hops = 0;
-  char max_path[255]{};
+  char max_path[185]{};
 
   unsigned long time_start = 0;
+
+  unsigned int num_repeaters;
+  Repeater repeaters[MAX_CONTACTS];
 };
 
 // ReSharper disable once CppPolymorphicClassWithNonVirtualPublicDestructor
-class MyMesh : public BaseChatMesh, ContactVisitor {
+class MyMesh : public BaseChatMesh {
   FILESYSTEM *_fs{};
   NodePrefs _prefs{};
   NodeStats _stats{};
   ChannelDetails *_public{};
 
+  uint32_t pending_discover_tag = 0;
+  unsigned long pending_discover_until = 0;
+
+  unsigned long last_repeater_check = 0;
   unsigned long last_msg_sent = 0;
   unsigned long last_msg_rcvd = 0;
   unsigned long last_msg_times[QUIET_LIMIT_TIMES]{};
   unsigned int last_msg_count = 0;
   unsigned long time_start = 0;
 
-  char repeaters_names[255][33]{};
-
   char command[512 + 10]{};
   uint8_t tmp_buf[256]{};
-  char hex_buf[512]{};
+  uint8_t _buf[256]{};
 
   bool clock_set = false;
   bool quiet = false;
 
   char message[256]{};
 
-  void loadContacts();
-  void saveContacts();
   void saveStats();
+  // ReSharper disable once CppHidingFunction
+  void resetStats();
   void loadStats();
   void setClock(uint32_t timestamp);
-  void importCard(const char* command);
+  void importCard(const char *command);
 
 protected:
   static const char *getTypeName(const uint8_t type) {
@@ -135,22 +146,27 @@ protected:
       snprintf(buf, buf_size, "%uм", m);
   }
 
-  static bool checkRepeaterNamePattern(const char* s)
-  {
+  static void format_days(uint32_t seconds, char *buf, const size_t buf_size) {
+    const uint32_t d = seconds / 86400;
+    const uint32_t h = seconds / 3600;
+    if (d > 0)
+      snprintf(buf, buf_size, "%uд", d);
+    else
+      snprintf(buf, buf_size, "%uч", h);
+  }
+
+  static bool checkRepeaterNamePattern(const char *s) {
     if (strlen(s) < 5) return false;
-    return
-        (((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z')) &&
-        ((s[1] >= 'A' && s[1] <= 'Z') || (s[1] >= 'a' && s[1] <= 'z')) &&
-        ((s[2] >= 'A' && s[2] <= 'Z') || (s[2] >= 'a' && s[2] <= 'z')) &&
-        (s[3] == '-' || s[3] == '_')) || (strlen(s) > 7 &&
-          (s[0] == 'L' || s[0] == 'l') && (s[1] == 'O' || s[1] == 'o') &&
-            (s[2] == '-' || s[2] == '_') && ((s[3] >= 'A' && s[3] <= 'Z') || (s[3] >= 'a' && s[3] <= 'z')) &&
+    return (((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z')) &&
+            ((s[1] >= 'A' && s[1] <= 'Z') || (s[1] >= 'a' && s[1] <= 'z')) &&
+            ((s[2] >= 'A' && s[2] <= 'Z') || (s[2] >= 'a' && s[2] <= 'z')) && (s[3] == '-' || s[3] == '_')) ||
+           (strlen(s) > 7 && (s[0] == 'L' || s[0] == 'l') && (s[1] == 'O' || s[1] == 'o') && (s[2] == '-' || s[2] == '_') &&
+            ((s[3] >= 'A' && s[3] <= 'Z') || (s[3] >= 'a' && s[3] <= 'z')) &&
             ((s[4] >= 'A' && s[4] <= 'Z') || (s[4] >= 'a' && s[4] <= 'z')) &&
             ((s[5] >= 'A' && s[5] <= 'Z') || (s[5] >= 'a' && s[5] <= 'z')) && (s[6] == '-' || s[6] == '_'));
   }
 
-  void onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint32_t timestamp,
-                            const char *text) override;
+  void onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint32_t timestamp, const char *text) override;
 
   float getAirtimeBudgetFactor() const override { return _prefs.airtime_factor; }
 
@@ -159,13 +175,16 @@ protected:
     return static_cast<int>((pow(_prefs.rx_delay_base, 0.85f - score) - 1.0) * air_time);
   }
 
-  bool allowPacketForward(const mesh::Packet *packet) override { return true; }
+  bool allowPacketForward(const mesh::Packet *packet) override { return false; }
 
   void onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t *path) override;
 
   void onContactPathUpdated(const ContactInfo &contact) override {
-    Serial.printf("PATH to: %s, path_len=%d\n", contact.name, static_cast<int32_t>(contact.out_path_len));
-    saveContacts();
+    // not supported
+  }
+
+  int getAGCResetInterval() const override {
+    return static_cast<int>(_prefs.agc_reset_interval) * 4000; // milliseconds
   }
 
   ContactInfo *processAck(const uint8_t *data) override {
@@ -173,22 +192,21 @@ protected:
     return nullptr;
   }
 
-  void onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, const uint32_t sender_timestamp,
-                     const char *text) override {
+  void onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, const uint32_t sender_timestamp, const char *text) override {
     // not supported
   }
 
-  void onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
-                         const char *text) override {
-    // not supported
-  }
-  void onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
-                           const uint8_t *sender_prefix, const char *text) override {
+  void onCommandDataRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp, const char *text) override {
     // not supported
   }
 
-  uint8_t onContactRequest(const ContactInfo &contact, uint32_t sender_timestamp, const uint8_t *data,
-                           uint8_t len, uint8_t *reply) override {
+  void onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp, const uint8_t *sender_prefix,
+                           const char *text) override {
+    // not supported
+  }
+
+  uint8_t onContactRequest(const ContactInfo &contact, uint32_t sender_timestamp, const uint8_t *data, uint8_t len,
+                           uint8_t *reply) override {
     return 0; // unknown
   }
 
@@ -199,11 +217,11 @@ protected:
   uint32_t calcFloodTimeoutMillisFor(const uint32_t pkt_airtime_millis) const override {
     return SEND_TIMEOUT_BASE_MILLIS + FLOOD_SEND_TIMEOUT_FACTOR * static_cast<float>(pkt_airtime_millis);
   }
-  uint32_t calcDirectTimeoutMillisFor(const uint32_t pkt_airtime_millis,
-                                      const uint8_t path_len) const override {
-    return SEND_TIMEOUT_BASE_MILLIS + (static_cast<float>(pkt_airtime_millis) * DIRECT_SEND_PERHOP_FACTOR +
-                                       DIRECT_SEND_PERHOP_EXTRA_MILLIS) *
-                                          static_cast<float>(path_len + 1);
+
+  uint32_t calcDirectTimeoutMillisFor(const uint32_t pkt_airtime_millis, const uint8_t path_len) const override {
+    return SEND_TIMEOUT_BASE_MILLIS +
+           (static_cast<float>(pkt_airtime_millis) * DIRECT_SEND_PERHOP_FACTOR + DIRECT_SEND_PERHOP_EXTRA_MILLIS) *
+               static_cast<float>(path_len + 1);
   }
 
   void onSendTimeout() override { Serial.println("   ERROR: timed out, no ACK."); }
@@ -212,25 +230,26 @@ public:
   MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshTables &tables);
 
   bool getQuiet() const { return quiet; }
-
   unsigned long getTotalReceived() const { return _stats.total_received; }
-
   unsigned long getTotalRequested() const { return _stats.total_request; }
-
   unsigned long getTotalSent() const { return _stats.total_sent; }
-
   unsigned long getTenReceived() const { return last_msg_count; }
-
-  void onContactVisit(const ContactInfo &contact) override {
-    // not supported
-  }
-
+  const NodeStats *getStats() const { return &_stats; }
+  bool shouldAutoAddContactType(uint8_t type) const override { return true; };
   bool shouldOverwriteWhenFull() const override { return true; }
-
+  bool isAutoAddEnabled() const override { return true; }
   void begin(FILESYSTEM &fs);
-  void sendSelfAdvert(int delay_millis);
-  void sendMessage(const char *message);
+  void sendMessage(const char *message, uint8_t path_hash_size);
+  void sendNodeDiscoverReq();
   void handleCommand(const char *command);
   // ReSharper disable once CppHidingFunction
   void loop();
+
+  bool addRepeater(const ContactInfo &contact);
+  bool updateRepeater(Repeater &repeater, const ContactInfo &contact) const;
+  bool removeRepeater(const Repeater &repeater);
+  Repeater *searchRepeaterByPubKey(const uint8_t *pub_key, int prefix_len);
+  Repeater *searchRepeaterByPubKey(const uint8_t *pub_key);
+  Repeater *createRepeater(uint8_t prefix[4]);
+  Repeater *allocateRepeaterSlot();
 };

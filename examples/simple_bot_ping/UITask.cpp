@@ -54,7 +54,7 @@ void UITask::renderCurrScreen() {
   _display->print(_node_name);
 
   // stats
-  sprintf(_stats, "Q%d R%d S%d T%d L%d", _quiet, _total_request, _total_sent, _total_received, _last_msg_count);
+  sprintf(_stats, "Q%d R%d S%d L%d", _quiet, _total_request, _total_sent, _last_msg_count);
   const uint16_t statsWidth = _display->getTextWidth(_stats);
   _display->setCursor((_display->width() - statsWidth) / 2, 48);
   _display->print(_stats);
