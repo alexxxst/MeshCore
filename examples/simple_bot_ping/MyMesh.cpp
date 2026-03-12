@@ -130,7 +130,12 @@ void MyMesh::importCard(const char* command) {
 
 void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt,
                                   const uint32_t timestamp, const char *text) {
-  Serial.printf("   %s\n", text);
+  // will reply with the same path hash size
+  const uint8_t path_hash_size = pkt->getPathHashSize();
+  const uint8_t path_hash_count = pkt->getPathHashCount();
+  const uint8_t path_byte_len = pkt->getPathByteLen();
+
+  Serial.printf("   %s (%dh, %db)\n", text, path_hash_count, path_hash_size);
   if (!clock_set) {
     setClock(timestamp + 1);
     clock_set = true;
@@ -146,9 +151,6 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 
   _stats.total_received++;
   last_msg_rcvd = _ms->getMillis();
-
-  // will reply with the same path hash size
-  const uint8_t path_hash_size = pkt->getPathHashSize();
 
   int j = 0;
   for (int i = 0; i < last_msg_count; i++) {
@@ -178,14 +180,14 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
     if (strncasecmp(_text, "ping", 4) == 0 || strncasecmp(_text, "test", 4) == 0 ||
         strncmp(_text, "пинг", 8) == 0 || strncmp(_text, "Пинг", 8) == 0 || strncmp(_text, "тест", 8) == 0 ||
         strncmp(_text, "Тест", 8) == 0 || strncmp(_text, "Мяя", 6) == 0 || strncmp(_text, "Мяу", 6) == 0) {
-      if (pkt->isRouteDirect() || pkt->path_len == 0) {
+      if (pkt->isRouteDirect() || path_hash_count == 0) {
         sprintf(message, "@[%s] диpeкт c SNR %03.2f dB", _from, pkt->getSNR());
       } else {
         Repeater *first_repeater = nullptr;
-        char _path[(path_hash_size * 2 + 1) * pkt->path_len + 1];
+        char _path[(path_hash_size * 2 + 1) * path_hash_count + 1];
         unsigned int offset = 0;
-        for (size_t i = 0; i < pkt->path_len; i += path_hash_size) {
-          uint8_t prefix[4]{};
+        for (size_t i = 0; i < path_byte_len; i += path_hash_size) {
+          uint8_t prefix[6]{};
           for (size_t _i = 0; _i < path_hash_size; _i++) {
             prefix[_i] = pkt->path[i + _i];
             offset += snprintf(_path + offset, sizeof(_path) - offset, "%02X", pkt->path[i + _i]);
@@ -210,16 +212,16 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
           _path[offset - 1] = '\0';
         }
 
-        if (pkt->path_len >= _stats.max_hops) {
-          _stats.max_hops = pkt->path_len;
-          sprintf(_stats.max_path, "%s в %d %s: %s", _from, pkt->path_len, hop_word(pkt->path_len), _path);
+        if (path_hash_count >= _stats.max_hops) {
+          _stats.max_hops = path_hash_count;
+          sprintf(_stats.max_path, "%s в %d %s: %s", _from, path_hash_count, hop_word(path_hash_count), _path);
         }
         if (first_repeater != nullptr) {
-          sprintf(message, "@[%s] %d %s c %s: %s", _from, pkt->path_len, hop_word(pkt->path_len), first_repeater->name, _path);
+          sprintf(message, "@[%s] %d %s c %s: %s", _from, path_hash_count, hop_word(path_hash_count), first_repeater->name, _path);
         } else {
-          sprintf(message, "@[%s] %d %s: %s", _from, pkt->path_len, hop_word(pkt->path_len), _path);
+          sprintf(message, "@[%s] %d %s: %s", _from, path_hash_count, hop_word(path_hash_count), _path);
         }
-        _stats.total_hops = _stats.total_hops + pkt->path_len;
+        _stats.total_hops = _stats.total_hops + path_hash_count;
       }
     }
 
