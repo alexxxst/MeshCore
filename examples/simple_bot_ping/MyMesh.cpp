@@ -433,9 +433,7 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
     if (clock_set && !to_send && _ms->getMillis() - last_repeater_check > 3600 * 1000) {
       for (int i = 0; i < _stats.num_repeaters; i++) {
         const unsigned int time = getRTCClock()->getCurrentTime();
-        const unsigned int pre_time = getRTCClock()->getCurrentTime() - 90 * 86400;
-        if ((_stats.repeaters[i].advert_time > pre_time && time - _stats.repeaters[i].advert_time > OLD_REPEATER_TIME * 2 * 86400) ||
-          (_stats.repeaters[i].update_time > pre_time && time - _stats.repeaters[i].update_time > OLD_REPEATER_TIME * 86400)) {
+        if (time - _stats.repeaters[i].advert_time > OLD_REPEATER_TIME * 2 * 86400 && time - _stats.repeaters[i].update_time > OLD_REPEATER_TIME * 86400) {
           char hex[6]{};
           mesh::Utils::toHex(hex, _stats.repeaters[i].pub_key, _prefs.path_hash_mode);
           sprintf(message, "📡Бип-бип-бип, дaвнo нe видeл peпитep %s %s ...пpoщaй!", hex, _stats.repeaters[i].name);
