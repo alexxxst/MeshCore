@@ -8,7 +8,7 @@ public:
   LilyGoMiniEpaperS3() { }
 
   const char* getManufacturerName() const override {
-    return "LilyGo Mini Epaper S3";
+    return "LilyGo Mini E-paper S3";
   }
   void begin();
   uint16_t getBattMilliVolts() override;
