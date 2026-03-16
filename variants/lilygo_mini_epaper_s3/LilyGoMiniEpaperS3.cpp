@@ -16,8 +16,6 @@ uint16_t LilyGoMiniEpaperS3::getBattMilliVolts() {
 
 void LilyGoMiniEpaperS3::begin() {
   ESP32Board::begin();
-  Wire.begin();
-
   pinMode(PIN_USER_BTN, INPUT_PULLUP);
 
 #ifdef UI_HAS_JOYSTICK
@@ -27,5 +25,4 @@ void LilyGoMiniEpaperS3::begin() {
 
   pinMode(PIN_DISPLAY_EN, OUTPUT);
   digitalWrite(PIN_DISPLAY_EN, HIGH);
-
 }

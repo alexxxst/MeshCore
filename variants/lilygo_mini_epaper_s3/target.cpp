@@ -1,7 +1,5 @@
 #include "target.h"
-
 #include "helpers/ui/GxEPDDisplay.h"
-
 #include <Arduino.h>
 
 LilyGoMiniEpaperS3 board;
@@ -15,7 +13,7 @@ LilyGoMiniEpaperS3 board;
 
 WRAPPER_CLASS radio_driver(radio, board);
 
-ESP32RTCClock fallback_clock;
+VolatileRTCClock fallback_clock;
 AutoDiscoverRTCClock rtc_clock(fallback_clock);
 SensorManager sensors;
 
@@ -30,8 +28,8 @@ MomentaryButton joystick_right(ENCODER_RIGHT, 1000, true, true);
 #endif
 
 bool radio_init() {
-  fallback_clock.begin();
   rtc_clock.begin(Wire);
+
 #if defined(P_LORA_SCLK)
   spi.begin(P_LORA_SCLK, P_LORA_MISO, P_LORA_MOSI);
   return radio.std_init(&spi);
