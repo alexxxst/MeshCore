@@ -22,9 +22,11 @@ SensorManager sensors;
 #ifdef DISPLAY_CLASS
 DISPLAY_CLASS display;
 MomentaryButton user_btn(PIN_USER_BTN, 1000, true);
+#ifdef UI_HAS_JOYSTICK
 MomentaryButton back_btn(-1, 1000, true);
 MomentaryButton joystick_left(ENCODER_LEFT, 1000, true, true);
 MomentaryButton joystick_right(ENCODER_RIGHT, 1000, true, true);
+#endif
 #endif
 
 bool radio_init() {

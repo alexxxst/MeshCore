@@ -21,9 +21,11 @@ extern SensorManager sensors;
 #ifdef DISPLAY_CLASS
 extern DISPLAY_CLASS display;
 extern MomentaryButton user_btn;
+#ifdef UI_HAS_JOYSTICK
 extern MomentaryButton back_btn;
 extern MomentaryButton joystick_left;
 extern MomentaryButton joystick_right;
+#endif
 #endif
 
 bool radio_init();

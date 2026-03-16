@@ -4,8 +4,6 @@
 #include <helpers/ESP32Board.h>
 
 class LilyGoMiniEpaperS3 : public ESP32Board {
-protected:
-  uint8_t btn_prev_state;
 public:
   LilyGoMiniEpaperS3() { }
 
