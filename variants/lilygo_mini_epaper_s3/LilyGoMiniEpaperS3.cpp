@@ -1,4 +1,6 @@
 #include "LilyGoMiniEpaperS3.h"
+#include "PCF85063A.h"
+
 #include <Arduino.h>
 #include <target.h>
 
@@ -25,4 +27,35 @@ void LilyGoMiniEpaperS3::begin() {
 
   pinMode(PIN_DISPLAY_EN, OUTPUT);
   digitalWrite(PIN_DISPLAY_EN, HIGH);
+}
+
+static PCF85063A rtc_85063a;
+static bool rtc_85063a_success = false;
+
+bool PCF85063A_Clock::i2c_probe(TwoWire& wire, uint8_t addr) {
+  wire.beginTransmission(addr);
+  uint8_t error = wire.endTransmission();
+  return (error == 0);
+}
+
+void PCF85063A_Clock::begin(TwoWire& wire) {
+  if(i2c_probe(wire, I2C_ADDR)){
+    rtc_85063a.begin(wire);
+    rtc_85063a_success = true;
+    // rtc_85063a.reset();
+  }
+}
+uint32_t PCF85063A_Clock::getCurrentTime() {
+  if(rtc_85063a_success){
+    return rtc_85063a.now().unixtime();
+  }
+  return _fallback->getCurrentTime();
+}
+
+void PCF85063A_Clock::setCurrentTime(uint32_t time) {
+  if (rtc_85063a_success) {
+    rtc_85063a.adjust(DateTime(time));
+  } else {
+    _fallback->setCurrentTime(time);
+  }
 }

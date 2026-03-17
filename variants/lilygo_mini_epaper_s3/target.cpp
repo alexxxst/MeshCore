@@ -14,7 +14,7 @@ LilyGoMiniEpaperS3 board;
 WRAPPER_CLASS radio_driver(radio, board);
 
 VolatileRTCClock fallback_clock;
-AutoDiscoverRTCClock rtc_clock(fallback_clock);
+PCF85063A_Clock rtc_clock(fallback_clock);
 SensorManager sensors;
 
 #ifdef DISPLAY_CLASS
