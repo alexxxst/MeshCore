@@ -3,7 +3,6 @@
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
 #include <helpers/CommonCLI.h>
-#include <sys/signal.h>
 
 #if defined(NRF52_PLATFORM)
 #include <InternalFileSystem.h>
@@ -13,7 +12,7 @@
 #include <SPIFFS.h>
 #endif
 
-#include <helpers/ArduinoHelpers.h>
+#include "helpers/ArduinoHelpers.h"
 #include <helpers/IdentityStore.h>
 #include <helpers/SimpleMeshTables.h>
 #include <helpers/StaticPoolPacketManager.h>
@@ -21,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.2.6"
-#define FIRMWARE_BUILD_TEXT "2026-03-12"
+#define FIRMWARE_VER_TEXT   "v1.2.7"
+#define FIRMWARE_BUILD_TEXT "2026-03-23"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -47,6 +46,7 @@
 #define QUIET_LIMIT_TIMES               100  // overall limit for timestamps array
 #define QUIET_LIMIT_PAUSE               2.0f // seconds to reply
 #define OLD_REPEATER_TIME               7    // days
+#define MESSAGES_TO_REBOOT              1000
 
 #define BOT_NAME                        "Mr.Pong🏓"
 #define BOT_NAME_PLAIN                  "Mr.Pong"
@@ -93,7 +93,7 @@ class MyMesh : public BaseChatMesh {
   unsigned long last_msg_rcvd = 0;
   unsigned long last_msg_times[QUIET_LIMIT_TIMES]{};
   unsigned int last_msg_count = 0;
-  unsigned long time_start = 0;
+  unsigned int total_sent = 0;
 
   char command[512 + 10]{};
   uint8_t tmp_buf[256]{};
@@ -108,7 +108,7 @@ class MyMesh : public BaseChatMesh {
   // ReSharper disable once CppHidingFunction
   void resetStats();
   void loadStats();
-  void setClock(uint32_t timestamp);
+  void setClock(uint32_t timestamp) const;
   void importCard(const char *command);
 
 protected:
@@ -226,6 +226,9 @@ protected:
 #if ENV_INCLUDE_GPS == 1
   void applyGpsPrefs() const {
     sensors.setSettingValue("gps", _prefs.gps_enabled ? "1" : "0");
+    char interval_str[12];
+    sprintf(interval_str, "%u", _prefs.gps_interval);
+    sensors.setSettingValue("gps_interval", interval_str);
   }
 #endif
 

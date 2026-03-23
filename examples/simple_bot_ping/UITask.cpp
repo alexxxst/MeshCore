@@ -153,7 +153,7 @@ void UITask::loop(const bool quiet, const unsigned long total_request, const uns
     if (nmea != nullptr) {
       nmea->syncTime();
     }
-    _gps_sync = millis() + 1200000;
+    _gps_sync = millis() + GPS_SYNC_TIME;
   }
 #endif
 

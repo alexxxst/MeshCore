@@ -2,6 +2,8 @@
 
 #include <helpers/ui/DisplayDriver.h>
 
+#define GPS_SYNC_TIME (3600 + 600) * 1000; // 1 hour and 10 minutes
+
 class UITask {
   DisplayDriver* _display;
   unsigned long _next_read = 0, _next_refresh = 0, _led_reset = 0, _gps_sync = 0, _auto_off = 0;

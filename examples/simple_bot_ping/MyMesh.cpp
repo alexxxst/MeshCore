@@ -1,5 +1,4 @@
 #include "MyMesh.h"
-
 #include "RTClib.h"
 
 void MyMesh::saveStats() {
@@ -64,24 +63,24 @@ void MyMesh::loadStats() {
 #endif
     if (file) {
       size_t read =
-        file.read(&_stats.total_request, sizeof(_stats.total_request));
-      read += file.read(&_stats.total_received, sizeof(_stats.total_received));
-      read += file.read(&_stats.total_sent, sizeof(_stats.total_sent));
-      read += file.read(&_stats.total_thanks, sizeof(_stats.total_thanks));
-      read += file.read(&_stats.total_ignores, sizeof(_stats.total_ignores));
-      read += file.read(&_stats.total_hops, sizeof(_stats.total_hops));
-      read += file.read(&_stats.max_hops, sizeof(_stats.max_hops));
-      read += file.read(&_stats.max_path, sizeof(_stats.max_path));
-      read += file.read(&_stats.time_start, sizeof(_stats.time_start));
-      read += file.read(&_stats.num_repeaters, sizeof(_stats.num_repeaters));
+        file.read(reinterpret_cast<uint8_t *>(&_stats.total_request), sizeof(_stats.total_request));
+      read += file.read(reinterpret_cast<uint8_t *>(&_stats.total_received), sizeof(_stats.total_received));
+      read += file.read(reinterpret_cast<uint8_t *>(&_stats.total_sent), sizeof(_stats.total_sent));
+      read += file.read(reinterpret_cast<uint8_t *>(&_stats.total_thanks), sizeof(_stats.total_thanks));
+      read += file.read(reinterpret_cast<uint8_t *>(&_stats.total_ignores), sizeof(_stats.total_ignores));
+      read += file.read(reinterpret_cast<uint8_t *>(&_stats.total_hops), sizeof(_stats.total_hops));
+      read += file.read(reinterpret_cast<uint8_t *>(&_stats.max_hops), sizeof(_stats.max_hops));
+      read += file.read(reinterpret_cast<uint8_t *>(&_stats.max_path), sizeof(_stats.max_path));
+      read += file.read(reinterpret_cast<uint8_t *>(&_stats.time_start), sizeof(_stats.time_start));
+      read += file.read(reinterpret_cast<uint8_t *>(&_stats.num_repeaters), sizeof(_stats.num_repeaters));
       for (int i = 0; i < _stats.num_repeaters; i++) {
         _stats.repeaters[i] = Repeater();
-        read += file.read(&_stats.repeaters[i].pub_key, sizeof(_stats.repeaters[i].pub_key));
-        read += file.read(&_stats.repeaters[i].name, sizeof(_stats.repeaters[i].name));
-        read += file.read(&_stats.repeaters[i].first_count, sizeof(_stats.repeaters[i].first_count));
-        read += file.read(&_stats.repeaters[i].total_count, sizeof(_stats.repeaters[i].total_count));
-        read += file.read(&_stats.repeaters[i].advert_time, sizeof(_stats.repeaters[i].advert_time));
-        read += file.read(&_stats.repeaters[i].update_time, sizeof(_stats.repeaters[i].update_time));
+        read += file.read(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].pub_key), sizeof(_stats.repeaters[i].pub_key));
+        read += file.read(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].name), sizeof(_stats.repeaters[i].name));
+        read += file.read(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].first_count), sizeof(_stats.repeaters[i].first_count));
+        read += file.read(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].total_count), sizeof(_stats.repeaters[i].total_count));
+        read += file.read(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].advert_time), sizeof(_stats.repeaters[i].advert_time));
+        read += file.read(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].update_time), sizeof(_stats.repeaters[i].update_time));
       }
       // Serial.printf("Stats read %d from %d bytes", read, sizeof(_stats));
       // Serial.println();
@@ -90,7 +89,7 @@ void MyMesh::loadStats() {
   }
 }
 
-void MyMesh::setClock(const uint32_t timestamp) {
+void MyMesh::setClock(const uint32_t timestamp) const {
 #if ENV_INCLUDE_GPS == 1
   if (_prefs.gps_enabled) {
     LocationProvider * nmea = sensors.getLocationProvider();
@@ -102,7 +101,6 @@ void MyMesh::setClock(const uint32_t timestamp) {
   }
 #endif
   getRTCClock()->setCurrentTime(timestamp);
-  time_start = timestamp;
   Serial.println("   (OK - clock set!)");
 }
 
@@ -165,7 +163,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   }
 
   // check replay attack with 10 minutes
-  if (clock_set && abs(getRTCClock()->getCurrentTime() - timestamp) > 600) {
+  if (clock_set && llabs(getRTCClock()->getCurrentTime() - timestamp) > 600) {
     Serial.println("   Replay message discarded!");
     return;
   }
@@ -237,13 +235,6 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
                 last_msg_count, _stats.total_hops, _stats.num_repeaters);
       }
 
-      // uptime
-      if (strstr(_text, "uptime") != nullptr || strstr(_text, "аптайм") != nullptr) {
-        char uptime[16];
-        format_uptime(getRTCClock()->getCurrentTime() - time_start - 1, uptime, sizeof(uptime));
-        sprintf(message, "Uptime %s", uptime);
-      }
-
       // thanks
       if (strstr(_text, "спасибо") != nullptr || strstr(_text, "thank") != nullptr) {
         _stats.total_thanks++;
@@ -275,6 +266,16 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
         sprintf(message, "@[%s] 😼кc-кc-кc, нy иди cюдa, пoглaжy!", _from);
       }
 
+      // version
+      if (strstr(_text, "версия") != nullptr || strstr(_text, "version") != nullptr) {
+        sprintf(message, FIRMWARE_VER_TEXT " oт " FIRMWARE_BUILD_TEXT);
+      }
+
+      // шум
+      if (strstr(_text, "шум") != nullptr || strstr(_text, "noise") != nullptr) {
+        sprintf(message, "Boкpyг шyм %d dB, пycть тaк, нe кипишyй!", _radio->getNoiseFloor());
+      }
+
       // drink
       if (strstr(_text, "выпьем") != nullptr || strstr(_text, "пиво") != nullptr ||
           strstr(_text, "drink") != nullptr || strstr(_text, "beer") != nullptr) {
@@ -283,10 +284,10 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 
       // help
       if (strstr(_text, "команды") != nullptr || strstr(_text, "помощь") != nullptr) {
-        sprintf(message, "Koмaнды: пинг/тест, статистика, аптайм, репитеры, рекорд, старьё");
+        sprintf(message, "Koмaнды: пинг/тест, статистика, репитеры, рекорд, старьё");
       }
       if (strstr(_text, "help") != nullptr) {
-        sprintf(message, "Commands: ping/test, stats, uptime, repeaters, record, oldies");
+        sprintf(message, "Commands: ping/test, stats, repeaters, record, oldies");
       }
 
       // repeaters
@@ -393,6 +394,13 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   }
 
   saveStats();
+
+  if (clock_set && total_sent > MESSAGES_TO_REBOOT) {
+    const auto dt = DateTime(getRTCClock()->getCurrentTime());
+    if (dt.hour() > 2) {
+      board.reboot();
+    }
+  }
 }
 
 void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_t path_len, const uint8_t *path) {
@@ -467,7 +475,7 @@ MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshT
   _prefs.node_lat = 0.0;
   _prefs.node_lon = 0.0;
   _prefs.gps_enabled = 1;
-  _prefs.gps_interval = 120;
+  _prefs.gps_interval = 3600; // 1 hour
   _prefs.powersaving_enabled = false;
   _prefs.agc_reset_interval = 4;
   _prefs.path_hash_mode = PATH_HASH_MODE;
@@ -544,6 +552,7 @@ void MyMesh::sendMessage(const char *message, const uint8_t path_hash_size) {
 
     last_msg_sent = _ms->getMillis();
     _stats.total_sent++;
+    total_sent++;
   } else {
     Serial.printf("Quiet please!\n");
     _stats.total_ignores++;
@@ -573,7 +582,7 @@ void MyMesh::handleCommand(const char *command) {
   } else if (memcmp(command, "import ", 7) == 0) {
     importCard(&command[7]);
   } else if (memcmp(command, "ver", 3) == 0) {
-    Serial.println(FIRMWARE_VER_TEXT);
+    Serial.println(FIRMWARE_VER_TEXT " " FIRMWARE_BUILD_TEXT);
   } else if (memcmp(command, "reboot", 6) == 0) {
     board.reboot();
   } else if (memcmp(command, "stats reset", 11) == 0) {
