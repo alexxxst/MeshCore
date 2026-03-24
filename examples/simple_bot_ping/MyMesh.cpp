@@ -413,8 +413,8 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
   Serial.println();
 
   const unsigned int time = getRTCClock()->getCurrentTime();
-  if (!is_new || time < MAGIC_TIME_1 || time > MAGIC_TIME_2) {
-    Serial.print("   ignored!");
+  if (time < MAGIC_TIME_1 || time > MAGIC_TIME_2) {
+    Serial.print("   ignored because of local time!");
     Serial.println();
     return;
   }
