@@ -45,6 +45,7 @@
 #define QUIET_LIMIT_COUNT               30   // messages to check
 #define QUIET_LIMIT_TIMES               100  // overall limit for timestamps array
 #define QUIET_LIMIT_PAUSE               2.0f // seconds to reply
+#define OLD_REPEATER_CHECK              5    // hours
 #define OLD_REPEATER_TIME               7    // days
 #define MESSAGES_TO_REBOOT              1000
 #define MAGIC_TIME_1                    1767214800

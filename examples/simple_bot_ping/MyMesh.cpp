@@ -449,7 +449,7 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
     }
 
     // check old repeaters every hour when no messages
-    if (clock_set && !to_send && _ms->getMillis() - last_repeater_check > 3600 * 1000) {
+    if (clock_set && !to_send && _ms->getMillis() - last_repeater_check > OLD_REPEATER_CHECK * 3600 * 1000) {
       for (int i = 0; i < _stats.num_repeaters; i++) {
         if (_stats.repeaters[i].advert_time > MAGIC_TIME_1 && _stats.repeaters[i].update_time > MAGIC_TIME_1) {
           if (time - _stats.repeaters[i].advert_time > OLD_REPEATER_TIME * 2 * 86400 && time - _stats.repeaters[i].update_time > OLD_REPEATER_TIME * 86400) {
