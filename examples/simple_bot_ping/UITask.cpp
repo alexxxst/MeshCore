@@ -34,6 +34,9 @@ void UITask::begin(const char* name, const char* group) {
 }
 
 void UITask::renderCurrScreen() {
+
+  _display->clear();
+
   // meshcore logo
   _display->setColor(DisplayDriver::BLUE);
   constexpr int logoWidth = 128;
