@@ -139,12 +139,14 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
     clock_set = true;
   }
 
+  const unsigned int time = getRTCClock()->getCurrentTime();
+
 #ifdef LED_BLUE
   digitalWrite(LED_BLUE, LOW);
 #endif
 
   if (_stats.time_start == 0 && clock_set) {
-    _stats.time_start = getRTCClock()->getCurrentTime() + 1;
+    _stats.time_start = time + 1;
   }
 
   _stats.total_received++;
@@ -163,7 +165,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   }
 
   // check replay attack with 10 minutes
-  if (clock_set && llabs(getRTCClock()->getCurrentTime() - timestamp) > 600) {
+  if (clock_set && llabs(time - timestamp) > 600) {
     Serial.println("   Replay message discarded!");
     return;
   }
@@ -202,7 +204,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
               first_repeater = repeater;
             }
             repeater->total_count++;
-            repeater->update_time = getRTCClock()->getCurrentTime();
+            repeater->update_time = time;
           }
         }
 
@@ -229,7 +231,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
       // stats
       if (strstr(_text, "stats") != nullptr || strstr(_text, "статистика") != nullptr) {
         char uptime[16];
-        format_uptime(getRTCClock()->getCurrentTime() - _stats.time_start - 1, uptime, sizeof(uptime));
+        format_uptime(time - _stats.time_start - 1, uptime, sizeof(uptime));
         sprintf(message, "Cтaтa зa: %s\n oтвeты: %d из %d\n кaнaл: %d, зa %dм: %d\n хoпы: %d, peпы: %d",
                 uptime, _stats.total_sent, _stats.total_request, _stats.total_received, QUIET_LIMIT_TIME,
                 last_msg_count, _stats.total_hops, _stats.num_repeaters);
@@ -366,16 +368,16 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
           }
         }
 
-        if (o_idx3 > 0 && getRTCClock()->getCurrentTime() - o_min3 > 86400) {
+        if (o_idx3 > 0 && time - o_min3 > 86400) {
           char hex1[6]{}, hex2[6]{}, hex3[6]{};
           mesh::Utils::toHex(hex1, _stats.repeaters[o_idx1].pub_key, _prefs.path_hash_mode);
           mesh::Utils::toHex(hex2, _stats.repeaters[o_idx2].pub_key, _prefs.path_hash_mode);
           mesh::Utils::toHex(hex3, _stats.repeaters[o_idx3].pub_key, _prefs.path_hash_mode);
 
           char adv1[4]{}, adv2[4]{}, adv3[4]{};
-          format_days(getRTCClock()->getCurrentTime() - o_min1, adv1, sizeof(adv1));
-          format_days(getRTCClock()->getCurrentTime() - o_min2, adv2, sizeof(adv2));
-          format_days(getRTCClock()->getCurrentTime() - o_min3, adv3, sizeof(adv3));
+          format_days(time - o_min1, adv1, sizeof(adv1));
+          format_days(time - o_min2, adv2, sizeof(adv2));
+          format_days(time - o_min3, adv3, sizeof(adv3));
 
           sprintf(message, "📡Toп peп бeз aдвepтa:\n%s %s: %s\n%s %s: %s\n%s %s: %s",
             hex1, _stats.repeaters[o_idx1].name, adv1,
@@ -396,7 +398,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   saveStats();
 
   if (clock_set && total_sent > MESSAGES_TO_REBOOT) {
-    const auto dt = DateTime(getRTCClock()->getCurrentTime());
+    const auto dt = DateTime(time);
     if (dt.hour() > 2) {
       board.reboot();
     }
@@ -409,6 +411,8 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
   Serial.print("   public key: ");
   mesh::Utils::printHex(Serial, contact.id.pub_key, PUB_KEY_SIZE);
   Serial.println();
+
+  const unsigned int time = getRTCClock()->getCurrentTime();
 
 #ifdef LED_BLUE
   digitalWrite(LED_BLUE, LOW);
@@ -432,7 +436,7 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
     } else {
       to_send = addRepeater(contact);
     }
-    if (to_send && clock_set && getRTCClock()->getCurrentTime() - _stats.time_start > 24 * 3600) {
+    if (to_send && clock_set && time - _stats.time_start > 24 * 3600) {
       char hex[6]{};
       mesh::Utils::toHex(hex, contact.id.pub_key, _prefs.path_hash_mode);
       sprintf(message, "📡Бип-бип-бип, oбнapyжeн нoвый peпитep: %s %s", hex, contact.name);
@@ -442,7 +446,6 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
     // check old repeaters every hour when no messages
     if (clock_set && !to_send && _ms->getMillis() - last_repeater_check > 3600 * 1000) {
       for (int i = 0; i < _stats.num_repeaters; i++) {
-        const unsigned int time = getRTCClock()->getCurrentTime();
         if (time - _stats.repeaters[i].advert_time > OLD_REPEATER_TIME * 2 * 86400 && time - _stats.repeaters[i].update_time > OLD_REPEATER_TIME * 86400) {
           char hex[6]{};
           mesh::Utils::toHex(hex, _stats.repeaters[i].pub_key, _prefs.path_hash_mode);
@@ -534,8 +537,8 @@ void MyMesh::sendMessage(const char *message, const uint8_t path_hash_size) {
   if (!quiet && _ms->getMillis() - last_msg_sent > QUIET_LIMIT_SECONDS * 1000) {
     // QUIET_LIMIT_SECONDS sec
     uint8_t temp[5 + MAX_TEXT_LEN + 32];
-    const uint32_t timestamp = getRTCClock()->getCurrentTime();
-    memcpy(temp, &timestamp, 4); // mostly an extra blob to help make packet_hash unique
+    const uint32_t time = getRTCClock()->getCurrentTime();
+    memcpy(temp, &time, 4); // mostly an extra blob to help make packet_hash unique
     temp[4] = 0;                 // attempt and flags
 
     sprintf(reinterpret_cast<char *>(&temp[5]), "%s: %s", _prefs.node_name, &message[0]); // <sender>: <msg>
@@ -568,8 +571,7 @@ void MyMesh::handleCommand(const char *command) {
     sendMessage(&command[7], _prefs.path_hash_mode);
   } else if (strcmp(command, "clock") == 0) {
     // show current time
-    const uint32_t now = getRTCClock()->getCurrentTime();
-    const auto dt = DateTime(now);
+    const auto dt = DateTime(getRTCClock()->getCurrentTime());
     Serial.printf("%02d:%02d - %d/%d/%d UTC\n", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
   } else if (strcmp(command, "quiet") == 0) {
     quiet = true;
@@ -690,7 +692,7 @@ bool MyMesh::addRepeater(const ContactInfo &contact) {
     strcpy(repeater->name, contact.name);
     memcpy(repeater->pub_key, contact.id.pub_key, PUB_KEY_SIZE);
     repeater->advert_time = getRTCClock()->getCurrentTime();
-    repeater->update_time = getRTCClock()->getCurrentTime();
+    repeater->update_time = repeater->advert_time;
     return true; // success
   }
   return false;
@@ -701,7 +703,7 @@ bool MyMesh::updateRepeater(Repeater &repeater, const ContactInfo &contact) cons
   strcpy(repeater.name, contact.name);
   memcpy(repeater.pub_key, contact.id.pub_key, PUB_KEY_SIZE);
   repeater.advert_time = getRTCClock()->getCurrentTime();
-  repeater.update_time = getRTCClock()->getCurrentTime();
+  repeater.update_time = repeater.advert_time;
   return ret;
 }
 

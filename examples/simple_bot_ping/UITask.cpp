@@ -60,7 +60,7 @@ void UITask::renderCurrScreen() {
 
   // time
   const auto dt = DateTime(_timestamp);
-  sprintf(_time, "%02d:%02d - %d/%d/%d UTC", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
+  sprintf(_time, "%02d:%02d:%02d %d/%d/%d UT", dt.hour(), dt.minute(), dt.second(), dt.day(), dt.month(), dt.year());
   const uint16_t timeWidth = _display->getTextWidth(_time);
   _display->setCursor((_display->width() - timeWidth) / 2, 67);
   _display->print(_time);
