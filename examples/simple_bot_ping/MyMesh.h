@@ -20,7 +20,7 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.2.9"
+#define FIRMWARE_VER_TEXT   "v1.2.10"
 #define FIRMWARE_BUILD_TEXT "2026-03-24"
 
 #define LORA_FREQ           868.856
@@ -47,7 +47,8 @@
 #define QUIET_LIMIT_PAUSE               2.0f // seconds to reply
 #define OLD_REPEATER_TIME               7    // days
 #define MESSAGES_TO_REBOOT              1000
-#define MAGIC_TIMESTAMP                 1767214800
+#define MAGIC_TIME_1                    1767214800
+#define MAGIC_TIME_2                    (MAGIC_TIME_1 + 5 * 365 * 86400)
 
 #define BOT_NAME                        "Mr.Pong🏓"
 #define BOT_NAME_PLAIN                  "Mr.Pong"

@@ -413,6 +413,11 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
   Serial.println();
 
   const unsigned int time = getRTCClock()->getCurrentTime();
+  if (!is_new || time < MAGIC_TIME_1 || time > MAGIC_TIME_2) {
+    Serial.print("   ignored!");
+    Serial.println();
+    return;
+  }
 
 #ifdef LED_BLUE
   digitalWrite(LED_BLUE, LOW);
@@ -446,7 +451,7 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
     // check old repeaters every hour when no messages
     if (clock_set && !to_send && _ms->getMillis() - last_repeater_check > 3600 * 1000) {
       for (int i = 0; i < _stats.num_repeaters; i++) {
-        if (time > MAGIC_TIMESTAMP && _stats.repeaters[i].advert_time > MAGIC_TIMESTAMP && _stats.repeaters[i].update_time > MAGIC_TIMESTAMP) {
+        if (_stats.repeaters[i].advert_time > MAGIC_TIME_1 && _stats.repeaters[i].update_time > MAGIC_TIME_1) {
           if (time - _stats.repeaters[i].advert_time > OLD_REPEATER_TIME * 2 * 86400 && time - _stats.repeaters[i].update_time > OLD_REPEATER_TIME * 86400) {
             char hex[6]{};
             mesh::Utils::toHex(hex, _stats.repeaters[i].pub_key, _prefs.path_hash_mode);
