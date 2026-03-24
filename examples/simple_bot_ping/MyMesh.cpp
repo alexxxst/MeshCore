@@ -374,7 +374,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
           mesh::Utils::toHex(hex2, _stats.repeaters[o_idx2].pub_key, _prefs.path_hash_mode);
           mesh::Utils::toHex(hex3, _stats.repeaters[o_idx3].pub_key, _prefs.path_hash_mode);
 
-          char adv1[4]{}, adv2[4]{}, adv3[4]{};
+          char adv1[5]{}, adv2[5]{}, adv3[5]{};
           format_days(time - o_min1, adv1, sizeof(adv1));
           format_days(time - o_min2, adv2, sizeof(adv2));
           format_days(time - o_min3, adv3, sizeof(adv3));
@@ -446,13 +446,15 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
     // check old repeaters every hour when no messages
     if (clock_set && !to_send && _ms->getMillis() - last_repeater_check > 3600 * 1000) {
       for (int i = 0; i < _stats.num_repeaters; i++) {
-        if (time - _stats.repeaters[i].advert_time > OLD_REPEATER_TIME * 2 * 86400 && time - _stats.repeaters[i].update_time > OLD_REPEATER_TIME * 86400) {
-          char hex[6]{};
-          mesh::Utils::toHex(hex, _stats.repeaters[i].pub_key, _prefs.path_hash_mode);
-          sprintf(message, "📡Бип-бип-бип, дaвнo нe видeл peпитep %s %s ...пpoщaй!", hex, _stats.repeaters[i].name);
-          sendMessage(message, _prefs.path_hash_mode);
-          removeRepeater(_stats.repeaters[i]);
-          break;
+        if (time > MAGIC_TIMESTAMP && _stats.repeaters[i].advert_time > MAGIC_TIMESTAMP && _stats.repeaters[i].update_time > MAGIC_TIMESTAMP) {
+          if (time - _stats.repeaters[i].advert_time > OLD_REPEATER_TIME * 2 * 86400 && time - _stats.repeaters[i].update_time > OLD_REPEATER_TIME * 86400) {
+            char hex[6]{};
+            mesh::Utils::toHex(hex, _stats.repeaters[i].pub_key, _prefs.path_hash_mode);
+            sprintf(message, "📡Бип-бип-бип, дaвнo нe видeл peпитep %s %s ...пpoщaй!", hex, _stats.repeaters[i].name);
+            sendMessage(message, _prefs.path_hash_mode);
+            removeRepeater(_stats.repeaters[i]);
+            break;
+          }
         }
       }
       last_repeater_check = _ms->getMillis();
