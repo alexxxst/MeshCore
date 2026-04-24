@@ -20,13 +20,13 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.2.10"
-#define FIRMWARE_BUILD_TEXT "2026-03-24"
+#define FIRMWARE_VER_TEXT   "v1.2.11"
+#define FIRMWARE_BUILD_TEXT "2026-04-24"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
-#define LORA_SF             8
-#define LORA_CR             6
+#define LORA_SF             7
+#define LORA_CR             7
 #define LORA_TX_POWER       22
 
 #define PATH_HASH_MODE      1   // bytes
@@ -145,7 +145,7 @@ protected:
       snprintf(buf, buf_size, "%uм", m);
   }
 
-  static void format_days(uint32_t seconds, char *buf, const size_t buf_size) {
+  static void format_days(const uint32_t seconds, char *buf, const size_t buf_size) {
     const uint32_t d = seconds / 86400;
     const uint32_t h = seconds / 3600;
     if (d > 0)
@@ -181,6 +181,10 @@ protected:
   void onContactPathUpdated(const ContactInfo &contact) override {
     // not supported
   }
+
+  bool shouldAutoAddContactType(uint8_t type) const override { return true; }
+  bool shouldOverwriteWhenFull() const override { return true; }
+  bool isAutoAddEnabled() const override { return true; }
 
   int getAGCResetInterval() const override {
     return static_cast<int>(_prefs.agc_reset_interval) * 4000; // milliseconds
@@ -244,9 +248,6 @@ public:
   unsigned long getTotalSent() const { return _stats.total_sent; }
   unsigned long getTenReceived() const { return last_msg_count; }
   const NodeStats *getStats() const { return &_stats; }
-  bool shouldAutoAddContactType(uint8_t type) const override { return true; };
-  bool shouldOverwriteWhenFull() const override { return true; }
-  bool isAutoAddEnabled() const override { return true; }
   void begin(FILESYSTEM &fs);
   void sendMessage(const char *message, uint8_t path_hash_size);
   void handleCommand(const char *command);

@@ -62,8 +62,7 @@ void MyMesh::loadStats() {
     File file = _fs->open("/node_stats");
 #endif
     if (file) {
-      size_t read =
-        file.read(reinterpret_cast<uint8_t *>(&_stats.total_request), sizeof(_stats.total_request));
+      size_t read = file.read(reinterpret_cast<uint8_t *>(&_stats.total_request), sizeof(_stats.total_request));
       read += file.read(reinterpret_cast<uint8_t *>(&_stats.total_received), sizeof(_stats.total_received));
       read += file.read(reinterpret_cast<uint8_t *>(&_stats.total_sent), sizeof(_stats.total_sent));
       read += file.read(reinterpret_cast<uint8_t *>(&_stats.total_thanks), sizeof(_stats.total_thanks));
@@ -181,7 +180,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
         strncmp(_text, "пинг", 8) == 0 || strncmp(_text, "Пинг", 8) == 0 || strncmp(_text, "тест", 8) == 0 ||
         strncmp(_text, "Тест", 8) == 0 || strncmp(_text, "Мяя", 6) == 0 || strncmp(_text, "Мяу", 6) == 0) {
       if (pkt->isRouteDirect() || path_hash_count == 0) {
-        sprintf(message, "@[%s] диpeкт c SNR %03.2f dB", _from, pkt->getSNR());
+        sprintf(message, "@[%s] диpeкт c SNR %03.2fdB и RSSI %ddBm", _from, pkt->getSNR(), static_cast<int8_t>(_radio->getLastRSSI()));
       } else {
         Repeater *first_repeater = nullptr;
         char _path[(path_hash_size * 2 + 1) * path_hash_count + 1];
