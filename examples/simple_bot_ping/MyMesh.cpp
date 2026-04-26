@@ -62,24 +62,24 @@ void MyMesh::loadStats() {
     File file = _fs->open("/node_stats");
 #endif
     if (file) {
-      size_t read = file.read(reinterpret_cast<uint8_t *>(&_stats.total_request), sizeof(_stats.total_request));
-      read += file.read(reinterpret_cast<uint8_t *>(&_stats.total_received), sizeof(_stats.total_received));
-      read += file.read(reinterpret_cast<uint8_t *>(&_stats.total_sent), sizeof(_stats.total_sent));
-      read += file.read(reinterpret_cast<uint8_t *>(&_stats.total_thanks), sizeof(_stats.total_thanks));
-      read += file.read(reinterpret_cast<uint8_t *>(&_stats.total_ignores), sizeof(_stats.total_ignores));
-      read += file.read(reinterpret_cast<uint8_t *>(&_stats.total_hops), sizeof(_stats.total_hops));
-      read += file.read(reinterpret_cast<uint8_t *>(&_stats.max_hops), sizeof(_stats.max_hops));
-      read += file.read(reinterpret_cast<uint8_t *>(&_stats.max_path), sizeof(_stats.max_path));
-      read += file.read(reinterpret_cast<uint8_t *>(&_stats.time_start), sizeof(_stats.time_start));
-      read += file.read(reinterpret_cast<uint8_t *>(&_stats.num_repeaters), sizeof(_stats.num_repeaters));
+      size_t read = file.read(&_stats.total_request, sizeof(_stats.total_request));
+      read += file.read(&_stats.total_received, sizeof(_stats.total_received));
+      read += file.read(&_stats.total_sent, sizeof(_stats.total_sent));
+      read += file.read(&_stats.total_thanks, sizeof(_stats.total_thanks));
+      read += file.read(&_stats.total_ignores, sizeof(_stats.total_ignores));
+      read += file.read(&_stats.total_hops, sizeof(_stats.total_hops));
+      read += file.read(&_stats.max_hops, sizeof(_stats.max_hops));
+      read += file.read(&_stats.max_path, sizeof(_stats.max_path));
+      read += file.read(&_stats.time_start, sizeof(_stats.time_start));
+      read += file.read(&_stats.num_repeaters, sizeof(_stats.num_repeaters));
       for (int i = 0; i < _stats.num_repeaters; i++) {
         _stats.repeaters[i] = Repeater();
-        read += file.read(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].pub_key), sizeof(_stats.repeaters[i].pub_key));
-        read += file.read(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].name), sizeof(_stats.repeaters[i].name));
-        read += file.read(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].first_count), sizeof(_stats.repeaters[i].first_count));
-        read += file.read(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].total_count), sizeof(_stats.repeaters[i].total_count));
-        read += file.read(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].advert_time), sizeof(_stats.repeaters[i].advert_time));
-        read += file.read(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].update_time), sizeof(_stats.repeaters[i].update_time));
+        read += file.read(&_stats.repeaters[i].pub_key, sizeof(_stats.repeaters[i].pub_key));
+        read += file.read(&_stats.repeaters[i].name, sizeof(_stats.repeaters[i].name));
+        read += file.read(&_stats.repeaters[i].first_count, sizeof(_stats.repeaters[i].first_count));
+        read += file.read(&_stats.repeaters[i].total_count, sizeof(_stats.repeaters[i].total_count));
+        read += file.read(&_stats.repeaters[i].advert_time, sizeof(_stats.repeaters[i].advert_time));
+        read += file.read(&_stats.repeaters[i].update_time, sizeof(_stats.repeaters[i].update_time));
       }
       // Serial.printf("Stats read %d from %d bytes", read, sizeof(_stats));
       // Serial.println();

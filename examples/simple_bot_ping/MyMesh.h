@@ -80,7 +80,7 @@ struct NodeStats {
 
   unsigned long time_start = 0;
 
-  unsigned int num_repeaters;
+  unsigned int num_repeaters = 0;
   Repeater repeaters[MAX_CONTACTS];
 };
 
