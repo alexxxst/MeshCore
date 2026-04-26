@@ -32,7 +32,10 @@ void MyMesh::saveStats() {
     }
     // Serial.printf("Stats wrote %d from %d bytes", wrote, sizeof(_stats));
     // Serial.println();
-    file.flush();
+    if (millis() > last_flush + FLUSH_LIMIT_SECONDS * 1000) {
+      file.flush();
+      last_flush = millis();
+    }
     file.close();
   }
 }

@@ -40,11 +40,12 @@
 #define DIRECT_SEND_PERHOP_FACTOR       6.0f
 #define DIRECT_SEND_PERHOP_EXTRA_MILLIS 250
 
+#define FLUSH_LIMIT_SECONDS             60   // seconds for flush
 #define QUIET_LIMIT_SECONDS             5    // seconds to cooldown
 #define QUIET_LIMIT_TIME                5    // minutes to check
 #define QUIET_LIMIT_COUNT               30   // messages to check
 #define QUIET_LIMIT_TIMES               100  // overall limit for timestamps array
-#define QUIET_LIMIT_PAUSE               2.0f // seconds to reply
+#define QUIET_LIMIT_PAUSE               1.0f // seconds to reply
 #define OLD_REPEATER_CHECK              5    // hours
 #define OLD_REPEATER_TIME               7    // days
 #define MESSAGES_TO_REBOOT              1000
@@ -91,6 +92,7 @@ class MyMesh : public BaseChatMesh {
   NodeStats _stats{};
   ChannelDetails *_public{};
 
+  unsigned long last_flush = 0;
   unsigned long last_repeater_check = 0;
   unsigned long last_msg_sent = 0;
   unsigned long last_msg_rcvd = 0;
