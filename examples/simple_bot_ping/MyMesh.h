@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.2.11"
-#define FIRMWARE_BUILD_TEXT "2026-04-24"
+#define FIRMWARE_VER_TEXT   "v1.2.12"
+#define FIRMWARE_BUILD_TEXT "2026-04-26"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
