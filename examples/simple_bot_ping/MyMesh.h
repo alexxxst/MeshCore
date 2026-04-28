@@ -20,13 +20,13 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.2.12"
-#define FIRMWARE_BUILD_TEXT "2026-04-26"
+#define FIRMWARE_VER_TEXT   "v1.2.14"
+#define FIRMWARE_BUILD_TEXT "2026-04-29"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
 #define LORA_SF             7
-#define LORA_CR             7
+#define LORA_CR             6
 #define LORA_TX_POWER       22
 
 #define PATH_HASH_MODE      1   // bytes
@@ -45,7 +45,7 @@
 #define QUIET_LIMIT_TIME                5    // minutes to check
 #define QUIET_LIMIT_COUNT               30   // messages to check
 #define QUIET_LIMIT_TIMES               100  // overall limit for timestamps array
-#define QUIET_LIMIT_PAUSE               1.0f // seconds to reply
+#define QUIET_LIMIT_PAUSE               2.5f // seconds to reply
 #define OLD_REPEATER_CHECK              5    // hours
 #define OLD_REPEATER_TIME               7    // days
 #define MESSAGES_TO_REBOOT              1000
@@ -124,7 +124,7 @@ protected:
     return "??"; // unknown
   }
 
-  static const char *hop_word(const int hop) {
+  static const char *hopWord(const int hop) {
     int n = hop % 100;
     if (n >= 11 && n <= 14) return "хопов";
     n = hop % 10;
@@ -133,7 +133,7 @@ protected:
     return "хопов";
   }
 
-  static void format_uptime(uint32_t seconds, char *buf, const size_t buf_size) {
+  static void formatUptime(uint32_t seconds, char *buf, const size_t buf_size) {
     const uint32_t d = seconds / 86400;
     seconds %= 86400;
     const uint32_t h = seconds / 3600;
@@ -147,7 +147,7 @@ protected:
       snprintf(buf, buf_size, "%uм", m);
   }
 
-  static void format_days(const uint32_t seconds, char *buf, const size_t buf_size) {
+  static void formatDays(const uint32_t seconds, char *buf, const size_t buf_size) {
     const uint32_t d = seconds / 86400;
     const uint32_t h = seconds / 3600;
     if (d > 0)
@@ -157,7 +157,7 @@ protected:
   }
 
   static bool checkRepeaterNamePattern(const char *s) {
-    if (strlen(s) < 5) return false;
+    if (strlen(s) < 5 || hasBidi(s, strlen(s))) return false;
     return (((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z')) &&
             ((s[1] >= 'A' && s[1] <= 'Z') || (s[1] >= 'a' && s[1] <= 'z')) &&
             ((s[2] >= 'A' && s[2] <= 'Z') || (s[2] >= 'a' && s[2] <= 'z')) && (s[3] == '-' || s[3] == '_')) ||
@@ -165,6 +165,20 @@ protected:
             ((s[3] >= 'A' && s[3] <= 'Z') || (s[3] >= 'a' && s[3] <= 'z')) &&
             ((s[4] >= 'A' && s[4] <= 'Z') || (s[4] >= 'a' && s[4] <= 'z')) &&
             ((s[5] >= 'A' && s[5] <= 'Z') || (s[5] >= 'a' && s[5] <= 'z')) && (s[6] == '-' || s[6] == '_'));
+  }
+
+  static bool hasBidi(const char* s, const size_t len) {
+    for (size_t i = 0; i + 2 < len; ++i) {
+      // U+202A–U+202E → E2 80 AA–AE
+      if (s[i] == 0xE2 && s[i+1] == 0x80 && s[i+2] >= 0xAA && s[i+2] <= 0xAE) {
+        return true;
+      }
+      // U+2066–U+2069 → E2 81 A6–A9
+      if (s[i] == 0xE2 && s[i+1] == 0x81 && s[i+2] >= 0xA6 && s[i+2] <= 0xA9) {
+        return true;
+      }
+    }
+    return false;
   }
 
   void onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint32_t timestamp, const char *text) override;

@@ -214,14 +214,14 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
           _path[offset - 1] = '\0';
         }
 
-        if (path_hash_count >= _stats.max_hops) {
+        if (path_hash_count >= _stats.max_hops && !hasBidi(_from, strlen(_from))) {
           _stats.max_hops = path_hash_count;
-          sprintf(_stats.max_path, "%s в %d %s: %s", _from, path_hash_count, hop_word(path_hash_count), _path);
+          sprintf(_stats.max_path, "%s в %d %s: %s", _from, path_hash_count, hopWord(path_hash_count), _path);
         }
         if (first_repeater != nullptr) {
-          sprintf(message, "@[%s] %d %s c %s: %s", _from, path_hash_count, hop_word(path_hash_count), first_repeater->name, _path);
+          sprintf(message, "@[%s] %d %s c %s: %s", _from, path_hash_count, hopWord(path_hash_count), first_repeater->name, _path);
         } else {
-          sprintf(message, "@[%s] %d %s: %s", _from, path_hash_count, hop_word(path_hash_count), _path);
+          sprintf(message, "@[%s] %d %s: %s", _from, path_hash_count, hopWord(path_hash_count), _path);
         }
         _stats.total_hops = _stats.total_hops + path_hash_count;
       }
@@ -233,7 +233,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
       // stats
       if (strstr(_text, "stats") != nullptr || strstr(_text, "статистика") != nullptr) {
         char uptime[16];
-        format_uptime(time - _stats.time_start - 1, uptime, sizeof(uptime));
+        formatUptime(time - _stats.time_start - 1, uptime, sizeof(uptime));
         sprintf(message, "Cтaтa зa: %s\n oтвeты: %d из %d\n кaнaл: %d, зa %dм: %d\n хoпы: %d, peпы: %d",
                 uptime, _stats.total_sent, _stats.total_request, _stats.total_received, QUIET_LIMIT_TIME,
                 last_msg_count, _stats.total_hops, _stats.num_repeaters);
@@ -377,9 +377,9 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
           mesh::Utils::toHex(hex3, _stats.repeaters[o_idx3].pub_key, _prefs.path_hash_mode);
 
           char adv1[5]{}, adv2[5]{}, adv3[5]{};
-          format_days(time - o_min1, adv1, sizeof(adv1));
-          format_days(time - o_min2, adv2, sizeof(adv2));
-          format_days(time - o_min3, adv3, sizeof(adv3));
+          formatDays(time - o_min1, adv1, sizeof(adv1));
+          formatDays(time - o_min2, adv2, sizeof(adv2));
+          formatDays(time - o_min3, adv3, sizeof(adv3));
 
           sprintf(message, "📡Toп peп бeз aдвepтa:\n%s %s: %s\n%s %s: %s\n%s %s: %s",
             hex1, _stats.repeaters[o_idx1].name, adv1,
@@ -604,7 +604,7 @@ void MyMesh::handleCommand(const char *command) {
   } else if (memcmp(command, "stats", 5) == 0) {
     loadStats();
     char uptime[16];
-    format_uptime(getRTCClock()->getCurrentTime() - _stats.time_start - 1, uptime, sizeof(uptime));
+    formatUptime(getRTCClock()->getCurrentTime() - _stats.time_start - 1, uptime, sizeof(uptime));
     sprintf(message,
             "Bot stats:\n stat time start: %s\n requests: %d\n replies: %d\n for %dm: %d\n thanks: %d\n "
             "ignores: %d\n "
