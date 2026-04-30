@@ -425,7 +425,7 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
   digitalWrite(LED_BLUE, LOW);
 #endif
 
-  if (contact.type == ADV_TYPE_REPEATER && checkRepeaterNamePattern(contact.name)) {
+  if (contact.type == ADV_TYPE_REPEATER && checkRepeaterNamePattern(contact.name, strlen(contact.name))) {
     bool to_send = false;
     // full key search first
     Repeater *repeater = searchRepeaterByPubKey(contact.id.pub_key);

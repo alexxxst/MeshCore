@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.2.14"
-#define FIRMWARE_BUILD_TEXT "2026-04-29"
+#define FIRMWARE_VER_TEXT   "v1.2.15"
+#define FIRMWARE_BUILD_TEXT "2026-04-30"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -48,7 +48,7 @@
 #define QUIET_LIMIT_PAUSE               2.5f // seconds to reply
 #define OLD_REPEATER_CHECK              5    // hours
 #define OLD_REPEATER_TIME               7    // days
-#define MESSAGES_TO_REBOOT              1000
+#define MESSAGES_TO_REBOOT              400
 #define MAGIC_TIME_1                    1767214800
 #define MAGIC_TIME_2                    (MAGIC_TIME_1 + 5 * 365 * 86400)
 
@@ -156,8 +156,8 @@ protected:
       snprintf(buf, buf_size, "%uч", h);
   }
 
-  static bool checkRepeaterNamePattern(const char *s) {
-    if (strlen(s) < 5 || hasBidi(s, strlen(s))) return false;
+  static bool checkRepeaterNamePattern(const char *s, const size_t len) {
+    if (len < 5 || hasBidi(s, len)) return false;
     return (((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z')) &&
             ((s[1] >= 'A' && s[1] <= 'Z') || (s[1] >= 'a' && s[1] <= 'z')) &&
             ((s[2] >= 'A' && s[2] <= 'Z') || (s[2] >= 'a' && s[2] <= 'z')) && (s[3] == '-' || s[3] == '_')) ||
