@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.2.15"
-#define FIRMWARE_BUILD_TEXT "2026-04-30"
+#define FIRMWARE_VER_TEXT   "v1.3"
+#define FIRMWARE_BUILD_TEXT "2026-05-04"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -150,10 +150,22 @@ protected:
   static void formatDays(const uint32_t seconds, char *buf, const size_t buf_size) {
     const uint32_t d = seconds / 86400;
     const uint32_t h = seconds / 3600;
+    const uint32_t m = seconds / 60;
     if (d > 0)
       snprintf(buf, buf_size, "%uд", d);
-    else
+    else if (h > 0)
       snprintf(buf, buf_size, "%uч", h);
+    else
+      snprintf(buf, buf_size, "%uм", m);
+  }
+
+  static void removeSubstring(const char *str, const char *sub) {
+    const size_t len_sub = strlen(sub);
+    if (len_sub == 0) return;
+    char *pos;
+    while ((pos = strstr(str, sub)) != nullptr) {
+      memmove(pos, pos + len_sub, strlen(pos + len_sub) + 1);
+    }
   }
 
   static bool checkRepeaterNamePattern(const char *s, const size_t len) {

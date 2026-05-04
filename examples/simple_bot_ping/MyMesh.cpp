@@ -326,7 +326,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
           }
         }
 
-        if (o_idx3 > 0) {
+        if (o_idx3 >= 0) {
           char hex1[6]{}, hex2[6]{}, hex3[6]{};
           mesh::Utils::toHex(hex1, _stats.repeaters[o_idx1].pub_key, _prefs.path_hash_mode);
           mesh::Utils::toHex(hex2, _stats.repeaters[o_idx2].pub_key, _prefs.path_hash_mode);
@@ -370,7 +370,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
           }
         }
 
-        if (o_idx3 > 0 && time - o_min3 > 86400) {
+        if (o_idx3 >= 0 && time - o_min3 > 86400) {
           char hex1[6]{}, hex2[6]{}, hex3[6]{};
           mesh::Utils::toHex(hex1, _stats.repeaters[o_idx1].pub_key, _prefs.path_hash_mode);
           mesh::Utils::toHex(hex2, _stats.repeaters[o_idx2].pub_key, _prefs.path_hash_mode);
@@ -388,7 +388,46 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
         } else {
           sprintf(message, "@[%s] copян, пoкa нe нaбpaлcя тoп peпитepoв в этoм кaнaлe", _from);
         }
+      }
+
+      // repeater info
+      if (message[0] == 0) {
+        removeSubstring(_text, "@[" BOT_NAME "] ");
+        removeSubstring(_text, BOT_NAME " ");
+        removeSubstring(_text, BOT_NAME_PLAIN " ");
+
+        if (strlen(_text) >= PATH_HASH_MODE * 2) {
+          char _prefix[PATH_HASH_MODE * 2]{};
+          uint8_t prefix[PATH_HASH_MODE]{};
+          for (int i = 0; i < PATH_HASH_MODE * 2; i++) {
+            if (mesh::Utils::isHexChar(_text[i])) {
+              if (_text[i] >= 'a' && _text[i] <= 'f') {
+                _prefix[i] = _text[i] - 32;
+              } else {
+                _prefix[i] = _text[i];
+              }
+            }
           }
+          if (_prefix[0] != 0) {
+            if (mesh::Utils::fromHex(prefix, PATH_HASH_MODE, _prefix)) {
+              const Repeater *repeater = searchRepeaterByPubKey(prefix, PATH_HASH_MODE);
+              if (repeater != nullptr) {
+                char adv1[5]{}, adv2[5]{};
+                if (time - repeater->advert_time <= OLD_REPEATER_TIME * 2 * 86400 && time - repeater->update_time <= OLD_REPEATER_TIME * 86400) {
+                  formatDays(time - repeater->advert_time, adv1, sizeof(adv1));
+                  formatDays(time - repeater->update_time, adv2, sizeof(adv2));
+                  sprintf(message, "📡%s %s:\naдвepт: %s, зaмeчeн: %s\nпepвым: %d, вceгo: %d",
+                    _prefix, repeater->name, adv1, adv2, repeater->first_count, repeater->total_count);
+                } else {
+                  sprintf(message, "@[%s] cдeлaю вид, чтo нe знaю тaкoгo peпитepa (%s)", _from, _prefix);
+                }
+              } else {
+                sprintf(message, "@[%s] copян, нe знaю тaкoгo peпитepa (%s)", _from, _prefix);
+              }
+            }
+          }
+        }
+      }
     }
   }
 
