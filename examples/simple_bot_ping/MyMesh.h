@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.3"
-#define FIRMWARE_BUILD_TEXT "2026-05-04"
+#define FIRMWARE_VER_TEXT   "v1.3.2"
+#define FIRMWARE_BUILD_TEXT "2026-05-12 2b"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -29,7 +29,7 @@
 #define LORA_CR             6
 #define LORA_TX_POWER       22
 
-#define PATH_HASH_MODE      1   // bytes
+#define PATH_HASH_MODE      2   // bytes
 #define MAX_GROUP_CHANNELS  1
 #define MAX_CONTACTS        350
 

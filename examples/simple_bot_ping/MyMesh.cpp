@@ -223,6 +223,9 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
         } else {
           sprintf(message, "@[%s] %d %s: %s", _from, path_hash_count, hopWord(path_hash_count), _path);
         }
+        if (path_hash_size != 2) {
+          sprintf(message, "%s ‼️дaвaй 2 бaйтa!", message);
+        }
         _stats.total_hops = _stats.total_hops + path_hash_count;
       }
     }
@@ -268,6 +271,11 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
       if (strstr(_text, "мяу") != nullptr || strstr(_text, "meow") != nullptr ||
           strstr(_text, "мяя") != nullptr || strstr(_text, "мурр") != nullptr) {
         sprintf(message, "@[%s] 😼кc-кc-кc, нy иди cюдa, пoглaжy!", _from);
+      }
+
+      // 2byte
+      if (strstr(_text, "два байт") != nullptr || strstr(_text, "2 byte") != nullptr || strstr(_text, "2 байт") != nullptr) {
+        sprintf(message, "@[%s] зaцeни: https://meshcore.spb.ru/wiki/2byte", _from);
       }
 
       // version
@@ -328,9 +336,9 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 
         if (o_idx3 >= 0) {
           char hex1[6]{}, hex2[6]{}, hex3[6]{};
-          mesh::Utils::toHex(hex1, _stats.repeaters[o_idx1].pub_key, _prefs.path_hash_mode);
-          mesh::Utils::toHex(hex2, _stats.repeaters[o_idx2].pub_key, _prefs.path_hash_mode);
-          mesh::Utils::toHex(hex3, _stats.repeaters[o_idx3].pub_key, _prefs.path_hash_mode);
+          mesh::Utils::toHex(hex1, _stats.repeaters[o_idx1].pub_key, PATH_HASH_MODE);
+          mesh::Utils::toHex(hex2, _stats.repeaters[o_idx2].pub_key, PATH_HASH_MODE);
+          mesh::Utils::toHex(hex3, _stats.repeaters[o_idx3].pub_key, PATH_HASH_MODE);
 
           sprintf(message, "📡Toп иcxoдящиx peп:\n%s %s: %d\n%s %s: %d\n%s %s: %d",
             hex1, _stats.repeaters[o_idx1].name, o_max1,
@@ -372,9 +380,9 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 
         if (o_idx3 >= 0 && time - o_min3 > 86400) {
           char hex1[6]{}, hex2[6]{}, hex3[6]{};
-          mesh::Utils::toHex(hex1, _stats.repeaters[o_idx1].pub_key, _prefs.path_hash_mode);
-          mesh::Utils::toHex(hex2, _stats.repeaters[o_idx2].pub_key, _prefs.path_hash_mode);
-          mesh::Utils::toHex(hex3, _stats.repeaters[o_idx3].pub_key, _prefs.path_hash_mode);
+          mesh::Utils::toHex(hex1, _stats.repeaters[o_idx1].pub_key, PATH_HASH_MODE);
+          mesh::Utils::toHex(hex2, _stats.repeaters[o_idx2].pub_key, PATH_HASH_MODE);
+          mesh::Utils::toHex(hex3, _stats.repeaters[o_idx3].pub_key, PATH_HASH_MODE);
 
           char adv1[5]{}, adv2[5]{}, adv3[5]{};
           formatDays(time - o_min1, adv1, sizeof(adv1));
@@ -397,7 +405,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
         removeSubstring(_text, BOT_NAME_PLAIN " ");
 
         if (strlen(_text) >= PATH_HASH_MODE * 2) {
-          char _prefix[PATH_HASH_MODE * 2]{};
+          char _prefix[PATH_HASH_MODE * 2 + 1]{};
           uint8_t prefix[PATH_HASH_MODE]{};
           for (int i = 0; i < PATH_HASH_MODE * 2; i++) {
             if (mesh::Utils::isHexChar(_text[i])) {
@@ -470,7 +478,7 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
     Repeater *repeater = searchRepeaterByPubKey(contact.id.pub_key);
     if (repeater == nullptr) {
       // prefix search
-      for (int i = 3; i >= _prefs.path_hash_mode; i--) {
+      for (int i = 3; i >= PATH_HASH_MODE; i--) {
         repeater = searchRepeaterByPubKey(contact.id.pub_key, i);
         if (repeater != nullptr) {
           break;
@@ -484,9 +492,9 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
     }
     if (to_send && clock_set && time - _stats.time_start > 24 * 3600) {
       char hex[6]{};
-      mesh::Utils::toHex(hex, contact.id.pub_key, _prefs.path_hash_mode);
+      mesh::Utils::toHex(hex, contact.id.pub_key, PATH_HASH_MODE);
       sprintf(message, "📡Бип-бип-бип, oбнapyжeн нoвый peпитep: %s %s", hex, contact.name);
-      sendMessage(message, _prefs.path_hash_mode);
+      sendMessage(message, PATH_HASH_MODE);
     }
 
     // check old repeaters every hour when no messages
@@ -495,9 +503,9 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
         if (_stats.repeaters[i].advert_time > MAGIC_TIME_1 && _stats.repeaters[i].update_time > MAGIC_TIME_1) {
           if (time - _stats.repeaters[i].advert_time > OLD_REPEATER_TIME * 2 * 86400 && time - _stats.repeaters[i].update_time > OLD_REPEATER_TIME * 86400) {
             char hex[6]{};
-            mesh::Utils::toHex(hex, _stats.repeaters[i].pub_key, _prefs.path_hash_mode);
+            mesh::Utils::toHex(hex, _stats.repeaters[i].pub_key, PATH_HASH_MODE);
             sprintf(message, "📡Бип-бип-бип, дaвнo нe видeл peпитep %s %s ...пpoщaй!", hex, _stats.repeaters[i].name);
-            sendMessage(message, _prefs.path_hash_mode);
+            sendMessage(message, PATH_HASH_MODE);
             removeRepeater(_stats.repeaters[i]);
             break;
           }
@@ -529,7 +537,6 @@ MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshT
   _prefs.gps_interval = 3600; // 1 hour
   _prefs.powersaving_enabled = false;
   _prefs.agc_reset_interval = 4;
-  _prefs.path_hash_mode = PATH_HASH_MODE;
 
   command[0] = 0;
   message[0] = 0;
@@ -616,7 +623,7 @@ void MyMesh::handleCommand(const char *command) {
 
   if (memcmp(command, "public ", 7) == 0) {
     // send GroupChannel msg
-    sendMessage(&command[7], _prefs.path_hash_mode);
+    sendMessage(&command[7], PATH_HASH_MODE);
   } else if (strcmp(command, "clock") == 0) {
     // show current time
     const auto dt = DateTime(getRTCClock()->getCurrentTime());
