@@ -166,12 +166,6 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
     last_msg_times[last_msg_count++] = last_msg_rcvd;
   }
 
-  // check replay attack with 10 minutes
-  if (clock_set && llabs(time - timestamp) > 600) {
-    Serial.println("   Replay message discarded!");
-    return;
-  }
-
   quiet = last_msg_count >= QUIET_LIMIT_COUNT;
 
   message[0] = 0;
