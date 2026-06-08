@@ -25,7 +25,7 @@ void setup() {
     halt();
   }
 
-  fast_rng.begin(static_cast<long>(radio_get_rng_seed()));
+  fast_rng.begin(static_cast<long>(radio_driver.getRngSeed()));
   sensors.begin();
 
 #if defined(NRF52_PLATFORM)
@@ -45,8 +45,8 @@ void setup() {
   ui_task.begin(BOT_NAME_PLAIN, PUBLIC_GROUP_NAME);
 #endif
 
-  radio_set_params(LORA_FREQ, LORA_BW, LORA_SF, LORA_CR);
-  radio_set_tx_power(LORA_TX_POWER);
+  radio_driver.setParams(LORA_FREQ, LORA_BW, LORA_SF, LORA_CR);
+  radio_driver.setTxPower(LORA_TX_POWER);
 }
 
 void loop() {
