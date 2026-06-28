@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.3.4"
-#define FIRMWARE_BUILD_TEXT "2026-06-08"
+#define FIRMWARE_VER_TEXT   "v1.4.0"
+#define FIRMWARE_BUILD_TEXT "2026-06-28"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -30,7 +30,6 @@
 #define LORA_TX_POWER       22
 
 #define PATH_HASH_MODE      2   // bytes
-#define MAX_GROUP_CHANNELS  1
 #define MAX_CONTACTS        350
 
 #include <helpers/BaseChatMesh.h>
@@ -54,8 +53,13 @@
 
 #define BOT_NAME                        "Mr.Pong🏓"
 #define BOT_NAME_PLAIN                  "Mr.Pong"
-#define PUBLIC_GROUP_NAME               "#bot"                     // #bot
-#define PUBLIC_GROUP_PSK                "61ChvLPk5de/aaV8na2iEQ==" // #bot's channel PSK
+
+#define BOT_GROUP_NAME                  "#bot"                     // #bot
+#define BOT_GROUP_PSK                   "61ChvLPk5de/aaV8na2iEQ==" // #bot's channel PSK
+#define PUBLIC_GROUP_NAME               "Public"
+#define PUBLIC_GROUP_PSK                "izOH6cXN6mrJ5e26oRXNcg=="
+
+#define GROUP_1_PSK                     "PK4W/QZ7qcMqmL4i6bmFJQ==" // #ping
 
 /* -------------------------------------------------------------------------------------- */
 
@@ -90,11 +94,16 @@ class MyMesh : public BaseChatMesh {
   FILESYSTEM *_fs{};
   NodePrefs _prefs{};
   NodeStats _stats{};
-  ChannelDetails *_public{};
+
+  int public_channel_idx = 1;
+  int bot_channel_idx = 0;
+  ChannelDetails *public_channel{};
+  ChannelDetails *bot_channel{};
 
   unsigned long last_flush = 0;
   unsigned long last_repeater_check = 0;
   unsigned long last_msg_sent = 0;
+  unsigned long last_pub_sent = 0;
   unsigned long last_msg_rcvd = 0;
   unsigned long last_msg_times[QUIET_LIMIT_TIMES]{};
   unsigned int last_msg_count = 0;
@@ -277,7 +286,7 @@ public:
   unsigned long getTenReceived() const { return last_msg_count; }
   const NodeStats *getStats() const { return &_stats; }
   void begin(FILESYSTEM &fs);
-  void sendMessage(const char *message, uint8_t path_hash_size);
+  void sendMessage(const char *message, const mesh::GroupChannel &channel, uint8_t path_hash_size);
   void handleCommand(const char *command);
   // ReSharper disable once CppHidingFunction
   void loop();

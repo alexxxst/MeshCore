@@ -42,7 +42,7 @@ void setup() {
 #endif
 
 #ifdef DISPLAY_CLASS
-  ui_task.begin(BOT_NAME_PLAIN, PUBLIC_GROUP_NAME);
+  ui_task.begin(BOT_NAME_PLAIN, BOT_GROUP_NAME);
 #endif
 
   radio_driver.setParams(LORA_FREQ, LORA_BW, LORA_SF, LORA_CR);

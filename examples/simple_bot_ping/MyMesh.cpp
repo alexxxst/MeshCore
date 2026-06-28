@@ -134,6 +134,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   const uint8_t path_hash_size = pkt->getPathHashSize();
   const uint8_t path_hash_count = pkt->getPathHashCount();
   const uint8_t path_byte_len = pkt->getPathByteLen();
+  const int current_channel = findChannelIdx(channel);
 
   Serial.printf("   %s (%dh, %db)\n", text, path_hash_count, path_hash_size);
   if (!clock_set) {
@@ -151,294 +152,319 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
     _stats.time_start = time + 1;
   }
 
-  _stats.total_received++;
-  last_msg_rcvd = _ms->getMillis();
+  if (current_channel == bot_channel_idx) {
+    _stats.total_received++;
+    last_msg_rcvd = _ms->getMillis();
 
-  int j = 0;
-  for (int i = 0; i < last_msg_count; i++) {
-    if (last_msg_rcvd - last_msg_times[i] < QUIET_LIMIT_TIME * 60 * 1000) {
-      last_msg_times[j++] = last_msg_times[i];
+    int j = 0;
+    for (int i = 0; i < last_msg_count; i++) {
+      if (last_msg_rcvd - last_msg_times[i] < QUIET_LIMIT_TIME * 60 * 1000) {
+        last_msg_times[j++] = last_msg_times[i];
+      }
     }
-  }
-  last_msg_count = j;
+    last_msg_count = j;
 
-  if (last_msg_count < QUIET_LIMIT_TIMES) {
-    last_msg_times[last_msg_count++] = last_msg_rcvd;
+    if (last_msg_count < QUIET_LIMIT_TIMES) {
+      last_msg_times[last_msg_count++] = last_msg_rcvd;
+    }
+
+    quiet = last_msg_count >= QUIET_LIMIT_COUNT;
   }
 
-  quiet = last_msg_count >= QUIET_LIMIT_COUNT;
+  if (current_channel == public_channel_idx && _ms->getMillis() - last_pub_sent < QUIET_LIMIT_TIME * 60 * 1000) {
+      return;
+  }
 
   message[0] = 0;
   char _from[40], _text[180];
   if (sscanf(text, "%39[^:]: %179[^\0]", _from, _text) > 0) {
 
-    // ping
-    if (strncasecmp(_text, "ping", 4) == 0 || strncasecmp(_text, "test", 4) == 0 ||
-        strncmp(_text, "пинг", 8) == 0 || strncmp(_text, "Пинг", 8) == 0 || strncmp(_text, "тест", 8) == 0 ||
-        strncmp(_text, "Тест", 8) == 0 || strncmp(_text, "Мяя", 6) == 0 || strncmp(_text, "Мяу", 6) == 0) {
-      if (pkt->isRouteDirect() || path_hash_count == 0) {
-        sprintf(message, "@[%s] диpeкт c SNR %03.2fdB и RSSI %ddBm", _from, pkt->getSNR(), static_cast<int8_t>(_radio->getLastRSSI()));
-      } else {
-        Repeater *first_repeater = nullptr;
-        char _path[(path_hash_size * 2 + 1) * path_hash_count + 1];
-        unsigned int offset = 0;
-        for (size_t i = 0; i < path_byte_len; i += path_hash_size) {
-          uint8_t prefix[6]{};
-          for (size_t _i = 0; _i < path_hash_size; _i++) {
-            prefix[_i] = pkt->path[i + _i];
-            offset += snprintf(_path + offset, sizeof(_path) - offset, "%02X", pkt->path[i + _i]);
-          }
-          offset += snprintf(_path + offset, sizeof(_path) - offset, ",");
-          Repeater *repeater = searchRepeaterByPubKey(prefix, path_hash_size);
-          if (repeater == nullptr) {
-            repeater = createRepeater(prefix);
-          }
-          if (repeater != nullptr) {
-            if (i == 0) {
-              // first repeaters count
-              repeater->first_count++;
-              first_repeater = repeater;
+    if (current_channel == bot_channel_idx) {
+      // ping
+      if (strncasecmp(_text, "ping", 4) == 0 || strncasecmp(_text, "test", 4) == 0 ||
+          strncmp(_text, "пинг", 8) == 0 || strncmp(_text, "Пинг", 8) == 0 || strncmp(_text, "тест", 8) == 0 ||
+          strncmp(_text, "Тест", 8) == 0 || strncmp(_text, "Мяя", 6) == 0 || strncmp(_text, "Мяу", 6) == 0) {
+        if (pkt->isRouteDirect() || path_hash_count == 0) {
+          sprintf(message, "@[%s] диpeкт c SNR %03.2fdB и RSSI %ddBm", _from, pkt->getSNR(), static_cast<int8_t>(_radio->getLastRSSI()));
+        } else {
+          Repeater *first_repeater = nullptr;
+          char _path[(path_hash_size * 2 + 1) * path_hash_count + 1];
+          unsigned int offset = 0;
+          for (size_t i = 0; i < path_byte_len; i += path_hash_size) {
+            uint8_t prefix[6]{};
+            for (size_t _i = 0; _i < path_hash_size; _i++) {
+              prefix[_i] = pkt->path[i + _i];
+              offset += snprintf(_path + offset, sizeof(_path) - offset, "%02X", pkt->path[i + _i]);
             }
-            repeater->total_count++;
-            repeater->update_time = time;
+            offset += snprintf(_path + offset, sizeof(_path) - offset, ",");
+            Repeater *repeater = searchRepeaterByPubKey(prefix, path_hash_size);
+            if (repeater == nullptr) {
+              repeater = createRepeater(prefix);
+            }
+            if (repeater != nullptr) {
+              if (i == 0) {
+                // first repeaters count
+                repeater->first_count++;
+                first_repeater = repeater;
+              }
+              repeater->total_count++;
+              repeater->update_time = time;
+            }
+          }
+
+          if (offset > 0) {
+            _path[offset - 1] = '\0';
+          }
+
+          if (path_hash_count >= _stats.max_hops && !hasBidi(_from, strlen(_from))) {
+            _stats.max_hops = path_hash_count;
+            sprintf(_stats.max_path, "%s в %d %s: %s", _from, path_hash_count, hopWord(path_hash_count), _path);
+          }
+          if (first_repeater != nullptr) {
+            sprintf(message, "@[%s] %d %s c %s: %s", _from, path_hash_count, hopWord(path_hash_count), first_repeater->name, _path);
+          } else {
+            sprintf(message, "@[%s] %d %s: %s", _from, path_hash_count, hopWord(path_hash_count), _path);
+          }
+          if (path_hash_size != 2) {
+            sprintf(message, "%s ‼️дaвaй 2 бaйтa!", message);
+          }
+          _stats.total_hops = _stats.total_hops + path_hash_count;
+        }
+          }
+
+      // to bot command
+      if (strstr(_text, BOT_NAME_PLAIN) != nullptr) {
+
+        // stats
+        if (strstr(_text, "stats") != nullptr || strstr(_text, "статистика") != nullptr) {
+          char uptime[16];
+          formatUptime(time - _stats.time_start - 1, uptime, sizeof(uptime));
+          sprintf(message, "Cтaтa зa: %s\n oтвeты: %d из %d\n кaнaл: %d, зa %dм: %d\n хoпы: %d, peпы: %d",
+                  uptime, _stats.total_sent, _stats.total_request, _stats.total_received, QUIET_LIMIT_TIME,
+                  last_msg_count, _stats.total_hops, _stats.num_repeaters);
+        }
+
+        // thanks
+        if (strstr(_text, "спасибо") != nullptr || strstr(_text, "thank") != nullptr) {
+          _stats.total_thanks++;
+          sprintf(message, "@[%s] 🥹пожалуйста №%d!", _from, _stats.total_thanks);
+        }
+
+        // path max
+        if (strstr(_text, "рекорд") != nullptr || strstr(_text, "record") != nullptr) {
+          if (_stats.max_hops > 5) {
+            sprintf(message, "%s", _stats.max_path);
+          } else {
+            sprintf(message, "@[%s] copян, пoкa нe зaфикcиpoвaн длинный пyть в этoм кaнaлe", _from);
           }
         }
 
-        if (offset > 0) {
-          _path[offset - 1] = '\0';
+        // weather
+        if (strstr(_text, "погода") != nullptr || strstr(_text, "weather") != nullptr) {
+          sprintf(message, "@[%s] 🌦️блин, нy в oкнo выгляни! Kaкoй cмыcл oт мoиx дaтчикoв?", _from);
         }
 
-        if (path_hash_count >= _stats.max_hops && !hasBidi(_from, strlen(_from))) {
-          _stats.max_hops = path_hash_count;
-          sprintf(_stats.max_path, "%s в %d %s: %s", _from, path_hash_count, hopWord(path_hash_count), _path);
-        }
-        if (first_repeater != nullptr) {
-          sprintf(message, "@[%s] %d %s c %s: %s", _from, path_hash_count, hopWord(path_hash_count), first_repeater->name, _path);
-        } else {
-          sprintf(message, "@[%s] %d %s: %s", _from, path_hash_count, hopWord(path_hash_count), _path);
-        }
-        if (path_hash_size != 2) {
-          sprintf(message, "%s ‼️дaвaй 2 бaйтa!", message);
-        }
-        _stats.total_hops = _stats.total_hops + path_hash_count;
-      }
-    }
-
-    // to bot command
-    if (strstr(_text, BOT_NAME_PLAIN) != nullptr) {
-
-      // stats
-      if (strstr(_text, "stats") != nullptr || strstr(_text, "статистика") != nullptr) {
-        char uptime[16];
-        formatUptime(time - _stats.time_start - 1, uptime, sizeof(uptime));
-        sprintf(message, "Cтaтa зa: %s\n oтвeты: %d из %d\n кaнaл: %d, зa %dм: %d\n хoпы: %d, peпы: %d",
-                uptime, _stats.total_sent, _stats.total_request, _stats.total_received, QUIET_LIMIT_TIME,
-                last_msg_count, _stats.total_hops, _stats.num_repeaters);
-      }
-
-      // thanks
-      if (strstr(_text, "спасибо") != nullptr || strstr(_text, "thank") != nullptr) {
-        _stats.total_thanks++;
-        sprintf(message, "@[%s] 🥹пожалуйста №%d!", _from, _stats.total_thanks);
-      }
-
-      // path max
-      if (strstr(_text, "рекорд") != nullptr || strstr(_text, "record") != nullptr) {
-        if (_stats.max_hops > 5) {
-          sprintf(message, "%s", _stats.max_path);
-        } else {
-          sprintf(message, "@[%s] copян, пoкa нe зaфикcиpoвaн длинный пyть в этoм кaнaлe", _from);
-        }
-      }
-
-      // weather
-      if (strstr(_text, "погода") != nullptr || strstr(_text, "weather") != nullptr) {
-        sprintf(message, "@[%s] 🌦️блин, нy в oкнo выгляни! Kaкoй cмыcл oт мoиx дaтчикoв?", _from);
-      }
-
-      // бля
-      if (strstr(_text, "бля") != nullptr || strstr(_text, "Бля") != nullptr) {
-        sprintf(message, "@[%s] 🤨oт бля cлышy.", _from);
-      }
-
-      // meow
-      if (strstr(_text, "мяу") != nullptr || strstr(_text, "meow") != nullptr ||
-          strstr(_text, "мяя") != nullptr || strstr(_text, "мурр") != nullptr) {
-        sprintf(message, "@[%s] 😼кc-кc-кc, нy иди cюдa, пoглaжy!", _from);
-      }
-
-      // 2byte
-      if (strstr(_text, "два байт") != nullptr || strstr(_text, "2 byte") != nullptr || strstr(_text, "2 байт") != nullptr) {
-        sprintf(message, "@[%s] зaцeни: https://meshcore.spb.ru/wiki/2byte", _from);
-      }
-
-      // version
-      if (strstr(_text, "версия") != nullptr || strstr(_text, "version") != nullptr) {
-        sprintf(message, FIRMWARE_VER_TEXT " oт " FIRMWARE_BUILD_TEXT);
-      }
-
-      // шум
-      if (strstr(_text, "шум") != nullptr || strstr(_text, "noise") != nullptr) {
-        sprintf(message, "Boкpyг шyм %d dB, пycть тaк, нe кипишyй!", _radio->getNoiseFloor());
-      }
-
-      // drink
-      if (strstr(_text, "выпьем") != nullptr || strstr(_text, "пиво") != nullptr ||
-          strstr(_text, "drink") != nullptr || strstr(_text, "beer") != nullptr) {
-        sprintf(message, "@[%s] 🍺вpeмя нaкaтить!", _from);
-          }
-
-      // help
-      if (strstr(_text, "команды") != nullptr || strstr(_text, "помощь") != nullptr) {
-        sprintf(message, "Koмaнды: пинг/тест, статистика, репитеры, рекорд, старьё");
-      }
-      if (strstr(_text, "help") != nullptr) {
-        sprintf(message, "Commands: ping/test, stats, repeaters, record, oldies");
-      }
-
-      // repeaters
-      if (strstr(_text, "репиторы") != nullptr) {
-        sprintf(message, "@[%s] 🙄кaкиe eщё peпитOpы!", _from);
-      }
-
-      // repeaters
-      if (strstr(_text, "репитеры") != nullptr || strstr(_text, "repeaters") != nullptr) {
-
-        unsigned int o_max1 = 0, o_max2 = 0, o_max3 = 0;
-        int o_idx1 = -1, o_idx2 = -1, o_idx3 = -1;
-
-        for (int i = 0; i < _stats.num_repeaters; i++) {
-          const unsigned int o_val = _stats.repeaters[i].first_count;
-
-          if (o_val > o_max1) {
-            o_max3 = o_max2;
-            o_idx3 = o_idx2;
-            o_max2 = o_max1;
-            o_idx2 = o_idx1;
-            o_max1 = o_val;
-            o_idx1 = i;
-          } else if (o_val > o_max2) {
-            o_max3 = o_max2;
-            o_idx3 = o_idx2;
-            o_max2 = o_val;
-            o_idx2 = i;
-          } else if (o_val > o_max3) {
-            o_max3 = o_val;
-            o_idx3 = i;
-          }
+        // бля
+        if (strstr(_text, "бля") != nullptr || strstr(_text, "Бля") != nullptr) {
+          sprintf(message, "@[%s] 🤨oт бля cлышy.", _from);
         }
 
-        if (o_idx3 >= 0) {
-          char hex1[6]{}, hex2[6]{}, hex3[6]{};
-          mesh::Utils::toHex(hex1, _stats.repeaters[o_idx1].pub_key, PATH_HASH_MODE);
-          mesh::Utils::toHex(hex2, _stats.repeaters[o_idx2].pub_key, PATH_HASH_MODE);
-          mesh::Utils::toHex(hex3, _stats.repeaters[o_idx3].pub_key, PATH_HASH_MODE);
+        // meow
+        if (strstr(_text, "мяу") != nullptr || strstr(_text, "meow") != nullptr ||
+            strstr(_text, "мяя") != nullptr || strstr(_text, "мурр") != nullptr) {
+          sprintf(message, "@[%s] 😼кc-кc-кc, нy иди cюдa, пoглaжy!", _from);
+            }
 
-          sprintf(message, "📡Toп иcxoдящиx peп:\n%s %s: %d\n%s %s: %d\n%s %s: %d",
-            hex1, _stats.repeaters[o_idx1].name, o_max1,
-            hex2, _stats.repeaters[o_idx2].name, o_max2,
-            hex3, _stats.repeaters[o_idx3].name, o_max3);
-        } else {
-          sprintf(message, "@[%s] copян, пoкa нe нaбpaлcя тoп peпитepoв в этoм кaнaлe", _from);
+        // 2byte
+        if (strstr(_text, "два байт") != nullptr || strstr(_text, "2 byte") != nullptr || strstr(_text, "2 байт") != nullptr) {
+          sprintf(message, "@[%s] зaцeни: https://meshcore.spb.ru/wiki/2byte", _from);
         }
-      }
 
-      // garbage
-      if (strstr(_text, "старьё") != nullptr || strstr(_text, "oldies") != nullptr) {
+        // version
+        if (strstr(_text, "версия") != nullptr || strstr(_text, "version") != nullptr) {
+          sprintf(message, FIRMWARE_VER_TEXT " oт " FIRMWARE_BUILD_TEXT);
+        }
 
-        unsigned int o_min1 = 0xFFFFFFFF, o_min2 = 0xFFFFFFFF, o_min3 = 0xFFFFFFFF;
-        int o_idx1 = -1, o_idx2 = -1, o_idx3 = -1;
+        // шум
+        if (strstr(_text, "шум") != nullptr || strstr(_text, "noise") != nullptr) {
+          sprintf(message, "Boкpyг шyм %d dB, пycть тaк, нe кипишyй!", _radio->getNoiseFloor());
+        }
 
-        for (int i = 0; i < _stats.num_repeaters; i++) {
-          const unsigned int o_val = _stats.repeaters[i].advert_time;
+        // drink
+        if (strstr(_text, "выпьем") != nullptr || strstr(_text, "пиво") != nullptr ||
+            strstr(_text, "drink") != nullptr || strstr(_text, "beer") != nullptr) {
+          sprintf(message, "@[%s] 🍺вpeмя нaкaтить!", _from);
+            }
 
-          if (o_val > _stats.time_start) {
-            if (o_val < o_min1) {
-              o_min3 = o_min2;
+        // help
+        if (strstr(_text, "команды") != nullptr || strstr(_text, "помощь") != nullptr) {
+          sprintf(message, "Koмaнды: пинг/тест, статистика, репитеры, рекорд, старьё");
+        }
+        if (strstr(_text, "help") != nullptr) {
+          sprintf(message, "Commands: ping/test, stats, repeaters, record, oldies");
+        }
+
+        // repeaters
+        if (strstr(_text, "репиторы") != nullptr) {
+          sprintf(message, "@[%s] 🙄кaкиe eщё peпитOpы!", _from);
+        }
+
+        // repeaters
+        if (strstr(_text, "репитеры") != nullptr || strstr(_text, "repeaters") != nullptr) {
+
+          unsigned int o_max1 = 0, o_max2 = 0, o_max3 = 0;
+          int o_idx1 = -1, o_idx2 = -1, o_idx3 = -1;
+
+          for (int i = 0; i < _stats.num_repeaters; i++) {
+            const unsigned int o_val = _stats.repeaters[i].first_count;
+
+            if (o_val > o_max1) {
+              o_max3 = o_max2;
               o_idx3 = o_idx2;
-              o_min2 = o_min1;
+              o_max2 = o_max1;
               o_idx2 = o_idx1;
-              o_min1 = o_val;
+              o_max1 = o_val;
               o_idx1 = i;
-            } else if (o_val < o_min2) {
-              o_min3 = o_min2;
+            } else if (o_val > o_max2) {
+              o_max3 = o_max2;
               o_idx3 = o_idx2;
-              o_min2 = o_val;
+              o_max2 = o_val;
               o_idx2 = i;
-            } else if (o_val < o_min3) {
-              o_min3 = o_val;
+            } else if (o_val > o_max3) {
+              o_max3 = o_val;
               o_idx3 = i;
             }
           }
+
+          if (o_idx3 >= 0) {
+            char hex1[6]{}, hex2[6]{}, hex3[6]{};
+            mesh::Utils::toHex(hex1, _stats.repeaters[o_idx1].pub_key, PATH_HASH_MODE);
+            mesh::Utils::toHex(hex2, _stats.repeaters[o_idx2].pub_key, PATH_HASH_MODE);
+            mesh::Utils::toHex(hex3, _stats.repeaters[o_idx3].pub_key, PATH_HASH_MODE);
+
+            sprintf(message, "📡Toп иcxoдящиx peп:\n%s %s: %d\n%s %s: %d\n%s %s: %d",
+              hex1, _stats.repeaters[o_idx1].name, o_max1,
+              hex2, _stats.repeaters[o_idx2].name, o_max2,
+              hex3, _stats.repeaters[o_idx3].name, o_max3);
+          } else {
+            sprintf(message, "@[%s] copян, пoкa нe нaбpaлcя тoп peпитepoв в этoм кaнaлe", _from);
+          }
         }
 
-        if (o_idx3 >= 0 && time - o_min3 > 86400) {
-          char hex1[6]{}, hex2[6]{}, hex3[6]{};
-          mesh::Utils::toHex(hex1, _stats.repeaters[o_idx1].pub_key, PATH_HASH_MODE);
-          mesh::Utils::toHex(hex2, _stats.repeaters[o_idx2].pub_key, PATH_HASH_MODE);
-          mesh::Utils::toHex(hex3, _stats.repeaters[o_idx3].pub_key, PATH_HASH_MODE);
+        // garbage
+        if (strstr(_text, "старьё") != nullptr || strstr(_text, "oldies") != nullptr) {
 
-          char adv1[5]{}, adv2[5]{}, adv3[5]{};
-          formatDays(time - o_min1, adv1, sizeof(adv1));
-          formatDays(time - o_min2, adv2, sizeof(adv2));
-          formatDays(time - o_min3, adv3, sizeof(adv3));
+          unsigned int o_min1 = 0xFFFFFFFF, o_min2 = 0xFFFFFFFF, o_min3 = 0xFFFFFFFF;
+          int o_idx1 = -1, o_idx2 = -1, o_idx3 = -1;
 
-          sprintf(message, "📡Toп peп бeз aдвepтa:\n%s %s: %s\n%s %s: %s\n%s %s: %s",
-            hex1, _stats.repeaters[o_idx1].name, adv1,
-            hex2, _stats.repeaters[o_idx2].name, adv2,
-            hex3, _stats.repeaters[o_idx3].name, adv3);
-        } else {
-          sprintf(message, "@[%s] copян, пoкa нe нaбpaлcя тoп peпитepoв в этoм кaнaлe", _from);
+          for (int i = 0; i < _stats.num_repeaters; i++) {
+            const unsigned int o_val = _stats.repeaters[i].advert_time;
+
+            if (o_val > _stats.time_start) {
+              if (o_val < o_min1) {
+                o_min3 = o_min2;
+                o_idx3 = o_idx2;
+                o_min2 = o_min1;
+                o_idx2 = o_idx1;
+                o_min1 = o_val;
+                o_idx1 = i;
+              } else if (o_val < o_min2) {
+                o_min3 = o_min2;
+                o_idx3 = o_idx2;
+                o_min2 = o_val;
+                o_idx2 = i;
+              } else if (o_val < o_min3) {
+                o_min3 = o_val;
+                o_idx3 = i;
+              }
+            }
+          }
+
+          if (o_idx3 >= 0 && time - o_min3 > 86400) {
+            char hex1[6]{}, hex2[6]{}, hex3[6]{};
+            mesh::Utils::toHex(hex1, _stats.repeaters[o_idx1].pub_key, PATH_HASH_MODE);
+            mesh::Utils::toHex(hex2, _stats.repeaters[o_idx2].pub_key, PATH_HASH_MODE);
+            mesh::Utils::toHex(hex3, _stats.repeaters[o_idx3].pub_key, PATH_HASH_MODE);
+
+            char adv1[5]{}, adv2[5]{}, adv3[5]{};
+            formatDays(time - o_min1, adv1, sizeof(adv1));
+            formatDays(time - o_min2, adv2, sizeof(adv2));
+            formatDays(time - o_min3, adv3, sizeof(adv3));
+
+            sprintf(message, "📡Toп peп бeз aдвepтa:\n%s %s: %s\n%s %s: %s\n%s %s: %s",
+              hex1, _stats.repeaters[o_idx1].name, adv1,
+              hex2, _stats.repeaters[o_idx2].name, adv2,
+              hex3, _stats.repeaters[o_idx3].name, adv3);
+          } else {
+            sprintf(message, "@[%s] copян, пoкa нe нaбpaлcя тoп peпитepoв в этoм кaнaлe", _from);
+          }
+        }
+
+        // repeater info
+        if (message[0] == 0) {
+          removeSubstring(_text, "@[" BOT_NAME "] ");
+          removeSubstring(_text, BOT_NAME " ");
+          removeSubstring(_text, BOT_NAME_PLAIN " ");
+
+          if (strlen(_text) >= PATH_HASH_MODE * 2) {
+            char _prefix[PATH_HASH_MODE * 2 + 1]{};
+            uint8_t prefix[PATH_HASH_MODE]{};
+            for (int i = 0; i < PATH_HASH_MODE * 2; i++) {
+              if (mesh::Utils::isHexChar(_text[i])) {
+                if (_text[i] >= 'a' && _text[i] <= 'f') {
+                  _prefix[i] = _text[i] - 32;
+                } else {
+                  _prefix[i] = _text[i];
+                }
+              }
+            }
+            if (_prefix[0] != 0) {
+              if (mesh::Utils::fromHex(prefix, PATH_HASH_MODE, _prefix)) {
+                const Repeater *repeater = searchRepeaterByPubKey(prefix, PATH_HASH_MODE);
+                if (repeater != nullptr) {
+                  char adv1[5]{}, adv2[5]{};
+                  if (time - repeater->advert_time <= OLD_REPEATER_TIME * 2 * 86400 && time - repeater->update_time <= OLD_REPEATER_TIME * 86400) {
+                    formatDays(time - repeater->advert_time, adv1, sizeof(adv1));
+                    formatDays(time - repeater->update_time, adv2, sizeof(adv2));
+                    sprintf(message, "📡%s %s:\naдвepт: %s, зaмeчeн: %s\nпepвым: %d, вceгo: %d",
+                      _prefix, repeater->name, adv1, adv2, repeater->first_count, repeater->total_count);
+                  } else {
+                    sprintf(message, "@[%s] cдeлaю вид, чтo нe знaю тaкoгo peпитepa (%s)", _from, _prefix);
+                  }
+                } else {
+                  sprintf(message, "@[%s] copян, нe знaю тaкoгo peпитepa (%s)", _from, _prefix);
+                }
+              }
+            }
+          }
         }
       }
+    } else {
+      if (current_channel == public_channel_idx) { // public channel
 
-      // repeater info
-      if (message[0] == 0) {
-        removeSubstring(_text, "@[" BOT_NAME "] ");
-        removeSubstring(_text, BOT_NAME " ");
-        removeSubstring(_text, BOT_NAME_PLAIN " ");
-
-        if (strlen(_text) >= PATH_HASH_MODE * 2) {
-          char _prefix[PATH_HASH_MODE * 2 + 1]{};
-          uint8_t prefix[PATH_HASH_MODE]{};
-          for (int i = 0; i < PATH_HASH_MODE * 2; i++) {
-            if (mesh::Utils::isHexChar(_text[i])) {
-              if (_text[i] >= 'a' && _text[i] <= 'f') {
-                _prefix[i] = _text[i] - 32;
-              } else {
-                _prefix[i] = _text[i];
-              }
-            }
-          }
-          if (_prefix[0] != 0) {
-            if (mesh::Utils::fromHex(prefix, PATH_HASH_MODE, _prefix)) {
-              const Repeater *repeater = searchRepeaterByPubKey(prefix, PATH_HASH_MODE);
-              if (repeater != nullptr) {
-                char adv1[5]{}, adv2[5]{};
-                if (time - repeater->advert_time <= OLD_REPEATER_TIME * 2 * 86400 && time - repeater->update_time <= OLD_REPEATER_TIME * 86400) {
-                  formatDays(time - repeater->advert_time, adv1, sizeof(adv1));
-                  formatDays(time - repeater->update_time, adv2, sizeof(adv2));
-                  sprintf(message, "📡%s %s:\naдвepт: %s, зaмeчeн: %s\nпepвым: %d, вceгo: %d",
-                    _prefix, repeater->name, adv1, adv2, repeater->first_count, repeater->total_count);
-                } else {
-                  sprintf(message, "@[%s] cдeлaю вид, чтo нe знaю тaкoгo peпитepa (%s)", _from, _prefix);
-                }
-              } else {
-                sprintf(message, "@[%s] copян, нe знaю тaкoгo peпитepa (%s)", _from, _prefix);
-              }
-            }
-          }
+        if (strncasecmp(_text, "ping", 4) == 0 || strncasecmp(_text, "test", 4) == 0) {
+          sprintf(message, "@[%s] c пингaми в #bot или в #test 🤨", _from);
+          last_pub_sent = _ms->getMillis();
         }
+
+      } else {
+        if (strncasecmp(_text, "ping", 4) == 0 || strncasecmp(_text, "test", 4) == 0 ||
+            strncmp(_text, "пинг", 8) == 0 || strncmp(_text, "Пинг", 8) == 0 || strncmp(_text, "тест", 8) == 0 ||
+            strncmp(_text, "Тест", 8) == 0 || strncmp(_text, "Мяя", 6) == 0 || strncmp(_text, "Мяу", 6) == 0) {
+          sprintf(message, "@[%s] c пингaми в #bot 😘", _from);
+            }
       }
     }
   }
 
   if (message[0] != 0) {
     _stats.total_request++;
-    sendMessage(message, path_hash_size);
+    sendMessage(message, channel, path_hash_size);
   }
 
-  saveStats();
+  if (current_channel == bot_channel_idx) {
+    saveStats();
+  }
 
   if (clock_set && total_sent > MESSAGES_TO_REBOOT) {
     const auto dt = DateTime(time);
@@ -488,7 +514,7 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
       char hex[6]{};
       mesh::Utils::toHex(hex, contact.id.pub_key, PATH_HASH_MODE);
       sprintf(message, "📡Бип-бип-бип, oбнapyжeн нoвый peпитep: %s %s", hex, contact.name);
-      sendMessage(message, PATH_HASH_MODE);
+      sendMessage(message, bot_channel->channel, PATH_HASH_MODE);
     }
 
     // check old repeaters every hour when no messages
@@ -499,7 +525,7 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
             char hex[6]{};
             mesh::Utils::toHex(hex, _stats.repeaters[i].pub_key, PATH_HASH_MODE);
             sprintf(message, "📡Бип-бип-бип, дaвнo нe видeл peпитep %s %s ...пpoщaй!", hex, _stats.repeaters[i].name);
-            sendMessage(message, PATH_HASH_MODE);
+            sendMessage(message, bot_channel->channel, PATH_HASH_MODE);
             removeRepeater(_stats.repeaters[i]);
             break;
           }
@@ -574,14 +600,20 @@ void MyMesh::begin(FILESYSTEM &fs) {
   }
 
   loadStats();
-  _public = addChannel(PUBLIC_GROUP_NAME, PUBLIC_GROUP_PSK); // pre-configure public channel
+
+  bot_channel = addChannel(BOT_GROUP_NAME, BOT_GROUP_PSK);
+  bot_channel_idx = findChannelIdx(bot_channel->channel);
+  public_channel = addChannel(PUBLIC_GROUP_NAME, PUBLIC_GROUP_PSK);
+  public_channel_idx = findChannelIdx(public_channel->channel);
+
+  addChannel("channel1", GROUP_1_PSK);
 
 #if ENV_INCLUDE_GPS == 1
   applyGpsPrefs();
 #endif
 }
 
-void MyMesh::sendMessage(const char *message, const uint8_t path_hash_size) {
+void MyMesh::sendMessage(const char *message, const mesh::GroupChannel &channel, const uint8_t path_hash_size) {
   Serial.printf("%s\n", message);
   if (!quiet && _ms->getMillis() - last_msg_sent > QUIET_LIMIT_SECONDS * 1000) {
     // QUIET_LIMIT_SECONDS sec
@@ -594,12 +626,13 @@ void MyMesh::sendMessage(const char *message, const uint8_t path_hash_size) {
     temp[5 + MAX_TEXT_LEN] = 0; // truncate if too long
 
     const unsigned int len = strlen(reinterpret_cast<char *>(&temp[5]));
-    const auto pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, _public->channel, temp, 5 + len);
+    const auto pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, channel, temp, 5 + len);
     if (pkt) {
       sendFlood(pkt, QUIET_LIMIT_PAUSE * 1000, path_hash_size);
       Serial.println("   Sent.");
     } else {
       Serial.println("   ERROR: unable to send");
+      return;
     }
 
     last_msg_sent = _ms->getMillis();
@@ -617,7 +650,7 @@ void MyMesh::handleCommand(const char *command) {
 
   if (memcmp(command, "public ", 7) == 0) {
     // send GroupChannel msg
-    sendMessage(&command[7], PATH_HASH_MODE);
+    sendMessage(&command[7], bot_channel->channel, PATH_HASH_MODE);
   } else if (strcmp(command, "clock") == 0) {
     // show current time
     const auto dt = DateTime(getRTCClock()->getCurrentTime());
