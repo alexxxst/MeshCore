@@ -102,7 +102,7 @@ void MyMesh::setClock(const uint32_t timestamp) const {
     }
   }
 #endif
-  getRTCClock()->setCurrentTime(timestamp);
+  getRTCClock()->setCurrentTime(timestamp + 1);
   Serial.println("   (OK - clock set!)");
 }
 
@@ -553,7 +553,7 @@ MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshT
   _prefs.rx_delay_base = 1.0;
   _prefs.node_lat = 0.0;
   _prefs.node_lon = 0.0;
-  _prefs.gps_enabled = 1;
+  _prefs.gps_enabled = 0;
   _prefs.gps_interval = 3600; // 1 hour
   _prefs.powersaving_enabled = false;
   _prefs.agc_reset_interval = 4;
@@ -654,7 +654,7 @@ void MyMesh::handleCommand(const char *command) {
   } else if (strcmp(command, "clock") == 0) {
     // show current time
     const auto dt = DateTime(getRTCClock()->getCurrentTime());
-    Serial.printf("%02d:%02d - %d/%d/%d UTC\n", dt.hour(), dt.minute(), dt.day(), dt.month(), dt.year());
+    Serial.printf("%02d:%02d:%02d - %d/%d/%d UTC\n", dt.hour(), dt.minute(), dt.second(), dt.day(), dt.month(), dt.year());
   } else if (strcmp(command, "quiet") == 0) {
     quiet = true;
     Serial.println("   (quiet set).");
@@ -669,6 +669,38 @@ void MyMesh::handleCommand(const char *command) {
     Serial.println(FIRMWARE_VER_TEXT " " FIRMWARE_BUILD_TEXT);
   } else if (memcmp(command, "reboot", 6) == 0) {
     board.reboot();
+  } else if (memcmp(command, "gps off", 7) == 0) {
+    _prefs.gps_enabled = false;
+    LocationProvider *nmea = sensors.getLocationProvider();
+    if (nmea != nullptr) {
+      nmea->stop();
+    }
+    Serial.println("   (GPS off).");
+  } else if (memcmp(command, "gps sync", 8) == 0) {
+    _prefs.gps_enabled = true;
+    LocationProvider *nmea = sensors.getLocationProvider();
+    if (nmea != nullptr) {
+      nmea->reset();
+      nmea->syncTime();
+    }
+    Serial.println("   (GPS sync).");
+  } else if (memcmp(command, "gps on", 6) == 0) {
+    _prefs.gps_enabled = true;
+    LocationProvider *nmea = sensors.getLocationProvider();
+    if (nmea != nullptr) {
+      nmea->begin();
+    }
+    Serial.println("   (GPS on).");
+  } else if (memcmp(command, "gps", 3) == 0) {
+    // gps
+    char _gps[32]{};
+    LocationProvider *nmea = sensors.getLocationProvider();
+    if (nmea != nullptr) {
+      sprintf(_gps, "%s sats: %d", nmea->isValid() ? "GPS fix" : "GPS no fix", nmea->satellitesCount());
+    } else {
+      sprintf(_gps, "No GPS");
+    }
+    Serial.println(_gps);
   } else if (memcmp(command, "stats reset", 11) == 0) {
     resetStats();
     Serial.println("   (stats reset).");
@@ -700,6 +732,8 @@ void MyMesh::handleCommand(const char *command) {
     Serial.println("   clock");
     Serial.println("   time {timestamp}");
     Serial.println("   import {biz card}");
+    Serial.println("   gps");
+    Serial.println("   gps {on|off|sync}");
     Serial.println("   stats");
     Serial.println("   stats reset");
     Serial.println("   repeaters");
