@@ -93,7 +93,7 @@ void MyMesh::loadStats() {
 
 void MyMesh::setClock(const uint32_t timestamp) const {
 #if ENV_INCLUDE_GPS == 1
-  if (_prefs.gps_enabled) {
+  if (_prefs.gps_enabled == 1) {
     LocationProvider * nmea = sensors.getLocationProvider();
     if (nmea != nullptr) {
       nmea->syncTime();
@@ -136,13 +136,23 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   const uint8_t path_byte_len = pkt->getPathByteLen();
   const int current_channel = findChannelIdx(channel);
 
+  total_received++;
+
   Serial.printf("   %s (%dh, %db)\n", text, path_hash_count, path_hash_size);
   if (!clock_set) {
-    setClock(timestamp + 1);
+    setClock(timestamp);
     clock_set = true;
   }
 
-  const unsigned int time = getRTCClock()->getCurrentTime();
+  unsigned int time = getRTCClock()->getCurrentTime();
+
+  // try to sync clock from timestamp
+  if (time != timestamp && _prefs.gps_enabled == 0 && total_received % 5 == 0) {
+    if ((timestamp < time && time - timestamp < 3600) || (timestamp > time && timestamp - time < 3600)) {
+      time = static_cast<unsigned int>((time + timestamp) / 2);
+      setClock(time - 1);
+    }
+  }
 
 #ifdef LED_BLUE
   digitalWrite(LED_BLUE, LOW);
@@ -443,7 +453,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
       if (current_channel == public_channel_idx) { // public channel
 
         if (strncasecmp(_text, "ping", 4) == 0 || strncasecmp(_text, "test", 4) == 0) {
-          sprintf(message, "@[%s] c пингaми в #bot или в #test 🤨", _from);
+          sprintf(message, "@[%s] c пингaми в #bot и c тecтaми в #test 🤨", _from);
           last_pub_sent = _ms->getMillis();
         }
 
@@ -555,7 +565,7 @@ MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshT
   _prefs.node_lon = 0.0;
   _prefs.gps_enabled = 0;
   _prefs.gps_interval = 3600; // 1 hour
-  _prefs.powersaving_enabled = false;
+  _prefs.powersaving_enabled = 0;
   _prefs.agc_reset_interval = 4;
 
   command[0] = 0;
@@ -659,9 +669,8 @@ void MyMesh::handleCommand(const char *command) {
     quiet = true;
     Serial.println("   (quiet set).");
   } else if (memcmp(command, "time ", 5) == 0) {
-    _prefs.gps_enabled = false;
+    _prefs.gps_enabled = 0;
     setClock(strtol(&command[5], nullptr, 10));
-    _prefs.gps_enabled = true;
     clock_set = true;
   } else if (memcmp(command, "import ", 7) == 0) {
     importCard(&command[7]);
@@ -670,14 +679,14 @@ void MyMesh::handleCommand(const char *command) {
   } else if (memcmp(command, "reboot", 6) == 0) {
     board.reboot();
   } else if (memcmp(command, "gps off", 7) == 0) {
-    _prefs.gps_enabled = false;
+    _prefs.gps_enabled = 0;
     LocationProvider *nmea = sensors.getLocationProvider();
     if (nmea != nullptr) {
       nmea->stop();
     }
     Serial.println("   (GPS off).");
   } else if (memcmp(command, "gps sync", 8) == 0) {
-    _prefs.gps_enabled = true;
+    _prefs.gps_enabled = 1;
     LocationProvider *nmea = sensors.getLocationProvider();
     if (nmea != nullptr) {
       nmea->reset();
@@ -685,7 +694,7 @@ void MyMesh::handleCommand(const char *command) {
     }
     Serial.println("   (GPS sync).");
   } else if (memcmp(command, "gps on", 6) == 0) {
-    _prefs.gps_enabled = true;
+    _prefs.gps_enabled = 1;
     LocationProvider *nmea = sensors.getLocationProvider();
     if (nmea != nullptr) {
       nmea->begin();
@@ -696,7 +705,7 @@ void MyMesh::handleCommand(const char *command) {
     char _gps[32]{};
     LocationProvider *nmea = sensors.getLocationProvider();
     if (nmea != nullptr) {
-      sprintf(_gps, "%s sats: %d", nmea->isValid() ? "GPS fix" : "GPS no fix", nmea->satellitesCount());
+      sprintf(_gps, "[%s] %s sats: %d", _prefs.gps_enabled == 1 ? "On" : "Off", nmea->isValid() ? "GPS fix" : "GPS no fix", nmea->satellitesCount());
     } else {
       sprintf(_gps, "No GPS");
     }
@@ -772,6 +781,18 @@ void MyMesh::loop() {
     handleCommand(command);
     command[0] = 0; // reset command buffer
   }
+
+#if ENV_INCLUDE_GPS
+  // sync tyme from GPS
+  if (_prefs.gps_enabled == 1 && millis() >= _gps_sync) {
+    LocationProvider *nmea = sensors.getLocationProvider();
+    if (nmea != nullptr) {
+      nmea->syncTime();
+    }
+    _gps_sync = millis() + GPS_SYNC_TIME;
+  }
+#endif
+
 }
 
 Repeater* MyMesh::searchRepeaterByPubKey(const uint8_t *pub_key, const int prefix_len) {

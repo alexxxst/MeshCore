@@ -35,12 +35,10 @@ void UITask::begin(const char* name, const char* group) {
 
 void UITask::renderCurrScreen() {
 
-  _display->clear();
-
   // meshcore logo
   _display->setColor(DisplayDriver::BLUE);
-  constexpr int logoWidth = 128;
-  _display->drawXbm((_display->width() - logoWidth) / 2, 3, meshcore_logo, logoWidth, 13);
+  _display->drawXbm((_display->width() - 128) / 2, 3, meshcore_logo, 128, 13);
+
   _display->setTextSize(1);
   _display->setColor(DisplayDriver::LIGHT);
 
@@ -130,11 +128,15 @@ void UITask::loop(const bool quiet, const unsigned long total_request, const uns
 
   if (_display->isOn()) {
     if (millis() >= _next_refresh) {
+      if (millis() >= _next_reset && _display->isEink()) {
+        _display->begin();
+        _next_reset = millis() + 600000;
+      }
+
       _display->startFrame();
       renderCurrScreen();
       _display->endFrame();
-
-      _next_refresh = millis() + 5000;
+      _next_refresh = millis() + 120000;
     }
     if (millis() > _auto_off) {
       _display->turnOff();
@@ -146,17 +148,6 @@ void UITask::loop(const bool quiet, const unsigned long total_request, const uns
   if (millis() >= _led_reset) {
     digitalWrite(LED_BLUE, HIGH);
     _led_reset = millis() + 500;
-  }
-#endif
-
-  // sync tyme from GPS
-#if ENV_INCLUDE_GPS
-  if (millis() >= _gps_sync) {
-    LocationProvider *nmea = sensors.getLocationProvider();
-    if (nmea != nullptr) {
-      nmea->syncTime();
-    }
-    _gps_sync = millis() + GPS_SYNC_TIME;
   }
 #endif
 

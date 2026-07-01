@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.4.1"
-#define FIRMWARE_BUILD_TEXT "2026-06-29"
+#define FIRMWARE_VER_TEXT   "v1.4.2"
+#define FIRMWARE_BUILD_TEXT "2026-06-30"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -50,6 +50,7 @@
 #define MESSAGES_TO_REBOOT              400
 #define MAGIC_TIME_1                    1767214800
 #define MAGIC_TIME_2                    (MAGIC_TIME_1 + 5 * 365 * 86400)
+#define GPS_SYNC_TIME                   (3600 + 600) * 1000; // 1 hour and 10 minutes
 
 #define BOT_NAME                        "Mr.Pong🏓"
 #define BOT_NAME_PLAIN                  "Mr.Pong"
@@ -100,6 +101,7 @@ class MyMesh : public BaseChatMesh {
   ChannelDetails *public_channel{};
   ChannelDetails *bot_channel{};
 
+  unsigned long _gps_sync = 0;
   unsigned long last_flush = 0;
   unsigned long last_repeater_check = 0;
   unsigned long last_msg_sent = 0;
@@ -108,6 +110,7 @@ class MyMesh : public BaseChatMesh {
   unsigned long last_msg_times[QUIET_LIMIT_TIMES]{};
   unsigned int last_msg_count = 0;
   unsigned int total_sent = 0;
+  unsigned int total_received = 0;
 
   char command[512 + 10]{};
   uint8_t tmp_buf[256]{};
@@ -269,7 +272,7 @@ protected:
 
 #if ENV_INCLUDE_GPS == 1
   void applyGpsPrefs() const {
-    sensors.setSettingValue("gps", _prefs.gps_enabled ? "1" : "0");
+    sensors.setSettingValue("gps", _prefs.gps_enabled == 1 ? "1" : "0");
     char interval_str[12];
     sprintf(interval_str, "%u", _prefs.gps_interval);
     sensors.setSettingValue("gps_interval", interval_str);
