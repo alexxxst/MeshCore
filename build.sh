@@ -203,14 +203,20 @@ build_repeater_firmwares() {
 
 #  # build specific repeater firmwares
 #  build_firmware "Heltec_v2_repeater"
-#  build_firmware "Heltec_v3_repeater"
+  build_firmware "Heltec_v3_repeater"
+  build_firmware "heltec_v4_repeater"
+  build_firmware "Heltec_t096_repeater"
+  build_firmware "GAT562_30S_Mesh_Kit_repeater"
+  build_firmware "MTL_1_repeater"
+  build_firmware "MTL_1_SX1268_repeater"
+
 #  build_firmware "Xiao_C3_Repeater_sx1262"
 #  build_firmware "Xiao_S3_WIO_Repeater"
 #  build_firmware "LilyGo_T3S3_sx1262_Repeater"
 #  build_firmware "RAK_4631_Repeater"
 
   # build all repeater firmwares
-  build_all_firmwares_by_suffix "_repeater"
+  # build_all_firmwares_by_suffix "_repeater"
 
 }
 
