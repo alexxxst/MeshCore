@@ -571,6 +571,7 @@ MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshT
   _prefs.gps_interval = 3600; // 1 hour
   _prefs.powersaving_enabled = 0;
   _prefs.agc_reset_interval = 4;
+  _prefs.cad_enabled = 1;
 
   command[0] = 0;
   message[0] = 0;

@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "v1.5.0 (@1.17.1)"
-#define FIRMWARE_BUILD_TEXT "2026-09-02"
+#define FIRMWARE_VER_TEXT   "Ботя v1.5.1, MeshCore 1.17.1"
+#define FIRMWARE_BUILD_TEXT "02-09-2026"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -222,6 +222,8 @@ protected:
     if (_prefs.rx_delay_base <= 0.0f) return 0;
     return static_cast<int>((pow(_prefs.rx_delay_base, 0.85f - score) - 1.0) * air_time);
   }
+
+  bool getCADEnabled() const override { return _prefs.cad_enabled; }
 
   bool allowPacketForward(const mesh::Packet *packet) override { return false; }
 
