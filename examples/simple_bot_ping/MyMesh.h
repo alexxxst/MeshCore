@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "Ботя v1.5.1, MeshCore 1.17.1"
-#define FIRMWARE_BUILD_TEXT "02-09-2026"
+#define FIRMWARE_VER_TEXT   "Ботя v1.5.2, MeshCore 1.17.1"
+#define FIRMWARE_BUILD_TEXT "09-09-2026"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5

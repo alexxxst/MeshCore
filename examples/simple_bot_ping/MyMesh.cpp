@@ -308,10 +308,10 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 
         // help
         if (strstr(_text, "команды") != nullptr || strstr(_text, "помощь") != nullptr) {
-          sprintf(message, "Koмaнды: пинг/тест, статистика, репитеры, рекорд, старьё");
+          sprintf(message, "Koмaнды: пинг/тест, статистика, репитеры, рекорд, старьё. Читaть: https://meshcore.spb.ru");
         }
         if (strstr(_text, "help") != nullptr) {
-          sprintf(message, "Commands: ping/test, stats, repeaters, record, oldies");
+          sprintf(message, "Commands: ping/test, stats, repeaters, record, oldies. Read: https://meshcore.spb.ru");
         }
 
         // repeaters
