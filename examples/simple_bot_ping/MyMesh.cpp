@@ -187,7 +187,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 
   message[0] = 0;
   char _from[40], _text[180];
-  if (sscanf(text, "%39[^:]: %179[^\0]", _from, _text) > 0) {
+  if (sscanf(text, "%39[^:]: %179[^\n]", _from, _text) > 0) {
 
     if (current_channel == bot_channel_idx) {
       // ping
@@ -236,7 +236,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
             sprintf(message, "@[%s] %d %s: %s", _from, path_hash_count, hopWord(path_hash_count), _path);
           }
           if (path_hash_size != 2) {
-            sprintf(message, "%s ‼️дaвaй 2 бaйтa!", message);
+            strcat(message, " ‼️дaвaй 2 бaйтa!");
           }
           _stats.total_hops = _stats.total_hops + path_hash_count;
         }

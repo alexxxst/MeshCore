@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "Ботя v1.5.2, MeshCore 1.17.1"
-#define FIRMWARE_BUILD_TEXT "09-09-2026"
+#define FIRMWARE_VER_TEXT   "Bot v1.5.3, @1.17.1"
+#define FIRMWARE_BUILD_TEXT "10-09-2026"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -50,7 +50,7 @@
 #define MESSAGES_TO_REBOOT              400
 #define MAGIC_TIME_1                    1767214800
 #define MAGIC_TIME_2                    (MAGIC_TIME_1 + 5 * 365 * 86400)
-#define GPS_SYNC_TIME                   (3600 + 600) * 1000; // 1 hour and 10 minutes
+#define GPS_SYNC_TIME                   ((3600 + 600) * 1000) // 1 hour and 10 minutes
 
 #define BOT_NAME                        "Mr.Pong🏓"
 #define BOT_NAME_PLAIN                  "Mr.Pong"
@@ -180,7 +180,7 @@ protected:
       snprintf(buf, buf_size, "%uм", m);
   }
 
-  static void removeSubstring(const char *str, const char *sub) {
+  static void removeSubstring(char *str, const char *sub) {
     const size_t len_sub = strlen(sub);
     if (len_sub == 0) return;
     char *pos;
@@ -194,7 +194,7 @@ protected:
     return (((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z')) &&
             ((s[1] >= 'A' && s[1] <= 'Z') || (s[1] >= 'a' && s[1] <= 'z')) &&
             ((s[2] >= 'A' && s[2] <= 'Z') || (s[2] >= 'a' && s[2] <= 'z')) && (s[3] == '-' || s[3] == '_')) ||
-           (strlen(s) > 7 && (s[0] == 'L' || s[0] == 'l') && (s[1] == 'O' || s[1] == 'o') && (s[2] == '-' || s[2] == '_') &&
+           (len > 7 && (s[0] == 'L' || s[0] == 'l') && (s[1] == 'O' || s[1] == 'o') && (s[2] == '-' || s[2] == '_') &&
             ((s[3] >= 'A' && s[3] <= 'Z') || (s[3] >= 'a' && s[3] <= 'z')) &&
             ((s[4] >= 'A' && s[4] <= 'Z') || (s[4] >= 'a' && s[4] <= 'z')) &&
             ((s[5] >= 'A' && s[5] <= 'Z') || (s[5] >= 'a' && s[5] <= 'z')) && (s[6] == '-' || s[6] == '_'));
