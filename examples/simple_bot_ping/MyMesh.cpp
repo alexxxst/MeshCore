@@ -820,7 +820,7 @@ void MyMesh::loop() {
     command[0] = 0; // reset command buffer
   }
 
-#if ENV_INCLUDE_GPS
+#if ENV_INCLUDE_GPS == 1
   // sync tyme from GPS
   if (_prefs.gps_enabled == 1 && millis() >= _gps_sync) {
     LocationProvider *nmea = sensors.getLocationProvider();
