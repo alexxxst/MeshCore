@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "Bot v1.5.3, @1.17.1"
-#define FIRMWARE_BUILD_TEXT "10-09-2026"
+#define FIRMWARE_VER_TEXT   "Bot v1.6, @1.17.1"
+#define FIRMWARE_BUILD_TEXT "(15-09-2026)"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -111,7 +111,7 @@ class MyMesh : public BaseChatMesh {
   ChannelDetails *bot_channel{};
 
   unsigned long _gps_sync = 0;
-  unsigned long last_flush = 0;
+  unsigned long last_stats_save = 0;
   unsigned long last_repeater_check = 0;
   unsigned long last_msg_sent = 0;
   unsigned long last_pub_sent = 0;
@@ -127,6 +127,7 @@ class MyMesh : public BaseChatMesh {
 
   bool clock_set = false;
   bool quiet = false;
+  bool stats_dirty = false;
 
   char message[256]{};
 
