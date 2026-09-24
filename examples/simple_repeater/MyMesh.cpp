@@ -595,6 +595,14 @@ bool MyMesh::isChanBlacklisted(const mesh::Packet* packet) const {
     const uint8_t* macAndData = &packet->payload[PATH_HASH_SIZE];  // MAC + encrypted data
     int enc_len = packet->payload_len - PATH_HASH_SIZE;
 
+    // decrypt() processes whole CIPHER_BLOCK_SIZE blocks, so a misaligned ciphertext
+    // length would write past 'tmp'; valid packets are always block-aligned.
+    int ct_len = enc_len - CIPHER_MAC_SIZE;
+    if (ct_len <= 0 || (ct_len % CIPHER_BLOCK_SIZE) != 0 || ct_len > MAX_PACKET_PAYLOAD) {
+      MESH_DEBUG_PRINTLN("isChanBlacklisted: unaligned ciphertext length, skipping name filters");
+      return false;
+    }
+
     for (int i = 0; i < _num_chan_name_filters; i++) {
       // Quick hash check first
       if (channel_hash != _chan_name_filters[i].hash[0]) continue;
@@ -635,18 +643,33 @@ bool MyMesh::removeFromBlacklist(BlacklistEntry* list, const uint8_t* prefix, ui
   return false;
 }
 
-void MyMesh::formatBlacklist(const BlacklistEntry* list, char* reply) {
+static bool isHexStr(const char* s, int len) {
+  for (int i = 0; i < len; i++) {
+    if (!mesh::Utils::isHexChar(s[i])) return false;
+  }
+  return true;
+}
+
+void MyMesh::formatBlacklist(const BlacklistEntry* list, char* reply, size_t reply_sz) {
+  if (reply_sz == 0) return;
   char* dp = reply;
+  char* end = reply + reply_sz - 1;  // always keep room for the terminating null
   int count = 0;
   for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
     if (list[i].len == 0) continue;
+    size_t need = (size_t)list[i].len * 2 + (count > 0 ? 1 : 0);
+    if (dp + need > end) break;
     if (count > 0) *dp++ = '\n';
     mesh::Utils::toHex(dp, list[i].prefix, list[i].len);
     dp += list[i].len * 2;
     count++;
   }
   if (count == 0) {
-    strcpy(reply, "-none-");
+    if (reply_sz >= sizeof("-none-")) {
+      strcpy(reply, "-none-");
+    } else {
+      reply[0] = 0;
+    }
   } else {
     *dp = 0;
   }
@@ -667,11 +690,12 @@ void MyMesh::loadBlacklist(const char* fname, BlacklistEntry* list) {
     int c = f.read();
     if (c < 0) break;
     if (c == '\n' || c == '\r') {
-      if (line_len >= 2 && (line_len % 2 == 0)) {
+      if (line_len >= 2 && (line_len % 2 == 0) && line[0] != '#') {
         line[line_len] = 0;
         uint8_t prefix[MAX_PATH_PREFIX_LEN];
         int byte_len = line_len / 2;
-        if (byte_len <= MAX_PATH_PREFIX_LEN && mesh::Utils::fromHex(prefix, byte_len, line)) {
+        if (byte_len <= MAX_PATH_PREFIX_LEN && isHexStr(line, line_len)
+            && mesh::Utils::fromHex(prefix, byte_len, line)) {
           list[idx].len = (uint8_t)byte_len;
           memcpy(list[idx].prefix, prefix, byte_len);
           idx++;
@@ -683,11 +707,12 @@ void MyMesh::loadBlacklist(const char* fname, BlacklistEntry* list) {
     }
   }
   // handle last line with no trailing newline
-  if (line_len >= 2 && (line_len % 2 == 0) && idx < MAX_BLACKLIST_ENTRIES) {
+  if (line_len >= 2 && (line_len % 2 == 0) && line[0] != '#' && idx < MAX_BLACKLIST_ENTRIES) {
     line[line_len] = 0;
     uint8_t prefix[MAX_PATH_PREFIX_LEN];
     int byte_len = line_len / 2;
-    if (byte_len <= MAX_PATH_PREFIX_LEN && mesh::Utils::fromHex(prefix, byte_len, line)) {
+    if (byte_len <= MAX_PATH_PREFIX_LEN && isHexStr(line, line_len)
+        && mesh::Utils::fromHex(prefix, byte_len, line)) {
       list[idx].len = (uint8_t)byte_len;
       memcpy(list[idx].prefix, prefix, byte_len);
     }
@@ -729,6 +754,9 @@ void MyMesh::deriveChanNameFilter(ChanNameFilter& entry, const char* name) {
 }
 
 bool MyMesh::addChanNameFilter(const char* name) {
+  // must be a "#name" that fits the fixed-size name buffer
+  if (name == NULL || name[0] != '#' || strlen(name) < 2
+      || strlen(name) >= sizeof(_chan_name_filters[0].name)) return false;
   // Check for duplicate
   for (int i = 0; i < _num_chan_name_filters; i++) {
     if (strcmp(_chan_name_filters[i].name, name) == 0) return true; // already exists
@@ -758,6 +786,11 @@ void MyMesh::loadChanBlacklist(const char* fname) {
   // Load both hex prefix entries and #channel_name entries from the same file
   loadBlacklist(fname, _chan_blacklist);  // loads hex entries into _chan_blacklist
 
+  // A channel blacklist hex entry is a single-byte channel hash; drop any legacy/oversized entries
+  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
+    if (_chan_blacklist[i].len != PATH_HASH_SIZE) _chan_blacklist[i].len = 0;
+  }
+
   // Now re-read the file to pick up #channel_name lines
   _num_chan_name_filters = 0;
   memset(_chan_name_filters, 0, sizeof(_chan_name_filters));
@@ -773,7 +806,7 @@ void MyMesh::loadChanBlacklist(const char* fname) {
     int c = f.read();
     if (c < 0) break;
     if (c == '\n' || c == '\r') {
-      if (line_len > 0 && line[0] == '#') {
+      if (line_len > 1 && line[0] == '#' && line_len < (int)sizeof(_chan_name_filters[0].name)) {
         line[line_len] = 0;
         deriveChanNameFilter(_chan_name_filters[_num_chan_name_filters], line);
         _num_chan_name_filters++;
@@ -784,7 +817,8 @@ void MyMesh::loadChanBlacklist(const char* fname) {
     }
   }
   // handle last line with no trailing newline
-  if (line_len > 0 && line[0] == '#' && _num_chan_name_filters < MAX_CHAN_NAME_FILTERS) {
+  if (line_len > 1 && line[0] == '#' && line_len < (int)sizeof(_chan_name_filters[0].name)
+      && _num_chan_name_filters < MAX_CHAN_NAME_FILTERS) {
     line[line_len] = 0;
     deriveChanNameFilter(_chan_name_filters[_num_chan_name_filters], line);
     _num_chan_name_filters++;
@@ -816,14 +850,16 @@ void MyMesh::saveChanBlacklist(const char* fname) {
   f.close();
 }
 
-void MyMesh::formatChanBlacklist(char* reply) {
+void MyMesh::formatChanBlacklist(char* reply, size_t reply_sz) {
+  if (reply_sz == 0) return;
   char* dp = reply;
-  char* end = reply + MAX_PACKET_PAYLOAD - 6;  // leave room for null + safety
+  char* end = reply + reply_sz - 1;  // always keep room for the terminating null
   int count = 0;
   // Format hex prefix entries
   for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
     if (_chan_blacklist[i].len == 0) continue;
-    if (dp + _chan_blacklist[i].len * 2 + 1 >= end) break;
+    size_t need = (size_t)_chan_blacklist[i].len * 2 + (count > 0 ? 1 : 0);
+    if (dp + need > end) break;
     if (count > 0) *dp++ = '\n';
     mesh::Utils::toHex(dp, _chan_blacklist[i].prefix, _chan_blacklist[i].len);
     dp += _chan_blacklist[i].len * 2;
@@ -831,15 +867,20 @@ void MyMesh::formatChanBlacklist(char* reply) {
   }
   // Format #channel_name entries
   for (int i = 0; i < _num_chan_name_filters; i++) {
-    int len = strlen(_chan_name_filters[i].name);
-    if (dp + len + 1 >= end) break;
+    size_t len = strlen(_chan_name_filters[i].name);
+    size_t need = len + (count > 0 ? 1 : 0);
+    if (dp + need > end) break;
     if (count > 0) *dp++ = '\n';
     memcpy(dp, _chan_name_filters[i].name, len);
     dp += len;
     count++;
   }
   if (count == 0) {
-    strcpy(reply, "-none-");
+    if (reply_sz >= sizeof("-none-")) {
+      strcpy(reply, "-none-");
+    } else {
+      reply[0] = 0;
+    }
   } else {
     *dp = 0;
   }
@@ -1604,8 +1645,8 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
     //   blacklist path rem <hex>[,<hex>,...]
     //   blacklist path clear
     //   blacklist chan list
-    //   blacklist chan add <hex|#name>[,<hex|#name>,...]
-    //   blacklist chan rem <hex|#name>[,<hex|#name>,...]
+    //   blacklist chan add <hash|#name>[,<hash|#name>,...]   (hash = 2 hex chars → 1 byte)
+    //   blacklist chan rem <hash|#name>[,<hash|#name>,...]
     //   blacklist chan clear
     const char* parts[5];
     int n = mesh::Utils::parseTextParts(command, parts, 5, ' ');
@@ -1622,9 +1663,9 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
 
     if (list && n >= 3 && strcmp(parts[2], "list") == 0) {
       if (is_chan) {
-        formatChanBlacklist(reply);
+        formatChanBlacklist(reply, MAX_BLACKLIST_REPLY_LEN);
       } else {
-        formatBlacklist(list, reply);
+        formatBlacklist(list, reply, MAX_BLACKLIST_REPLY_LEN);
       }
     } else if (list && n >= 3 && strcmp(parts[2], "clear") == 0) {
       memset(list, 0, sizeof(BlacklistEntry) * MAX_BLACKLIST_ENTRIES);
@@ -1638,13 +1679,10 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
       strcpy(reply, "OK");
     } else if (list && n >= 4 && (strcmp(parts[2], "add") == 0 || strcmp(parts[2], "rem") == 0)) {
       bool is_add = (parts[2][0] == 'a');
-      // parts[3] may be a comma-separated list of hex entries or #channel_name entries
-      char tokens[MAX_PATH_PREFIX_LEN * 2 * MAX_BLACKLIST_ENTRIES + MAX_BLACKLIST_ENTRIES + 2];
-      strncpy(tokens, parts[3], sizeof(tokens) - 1);
-      tokens[sizeof(tokens) - 1] = 0;
-
+      // parts[3] may be a comma-separated list of hex entries or #channel_name entries.
+      // It points into the mutable command buffer, so parse it in place (no copy/truncation).
       const char* tok_parts[MAX_BLACKLIST_ENTRIES];
-      int tok_n = mesh::Utils::parseTextParts(tokens, tok_parts, MAX_BLACKLIST_ENTRIES, ',');
+      int tok_n = mesh::Utils::parseTextParts((char*)parts[3], tok_parts, MAX_BLACKLIST_ENTRIES, ',');
 
       bool any_ok = false, any_err = false;
       for (int t = 0; t < tok_n; t++) {
@@ -1655,7 +1693,10 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
           if (ok) any_ok = true; else any_err = true;
         } else {
           int hex_str_len = strlen(tok_parts[t]);
-          if (hex_str_len < 2 || hex_str_len > MAX_PATH_PREFIX_LEN * 2 || (hex_str_len % 2) != 0) {
+          // channel hex entries are a single-byte hash; path entries are 1..MAX_PATH_PREFIX_LEN bytes
+          int max_hex_len = is_chan ? (PATH_HASH_SIZE * 2) : (MAX_PATH_PREFIX_LEN * 2);
+          if (hex_str_len < 2 || hex_str_len > max_hex_len || (hex_str_len % 2) != 0
+              || !isHexStr(tok_parts[t], hex_str_len)) {
             any_err = true; continue;
           }
           uint8_t prefix[MAX_PATH_PREFIX_LEN];
