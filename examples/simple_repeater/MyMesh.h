@@ -64,8 +64,8 @@ struct RepeaterStats {
 #endif
 
 #define MAX_PATH_PREFIX_LEN  4
-#define MAX_BLACKLIST_ENTRIES 16
-#define MAX_CHAN_NAME_FILTERS 8
+#define MAX_BLACKLIST_ENTRIES 30
+#define MAX_CHAN_NAME_FILTERS 15
 // Conservative cap for blacklist CLI replies: both serial (160) and over-radio
 // (161, minus optional 3-byte 'xx|' prefix) buffers are smaller than MAX_PACKET_PAYLOAD.
 #define MAX_BLACKLIST_REPLY_LEN 150
@@ -89,11 +89,11 @@ struct NeighbourInfo {
 };
 
 #ifndef FIRMWARE_BUILD_DATE
-  #define FIRMWARE_BUILD_DATE   "14 Aug 2026"
+  #define FIRMWARE_BUILD_DATE   "04 Oct 2026"
 #endif
 
 #ifndef FIRMWARE_VERSION
-  #define FIRMWARE_VERSION   "v1.17.1"
+  #define FIRMWARE_VERSION   "v1.17.1-pr2343"
 #endif
 
 #define FIRMWARE_ROLE "repeater"
