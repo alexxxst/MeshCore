@@ -228,6 +228,9 @@ build_repeater_firmwares() {
   build_firmware "GAT562_30S_Mesh_Kit_repeater"
   build_firmware "MTL_1_repeater"
   build_firmware "MTL_1_SX1268_repeater"
+  build_firmware "Tbeam_SX1276_repeater"
+  build_firmware "Tbeam_SX1262_repeater"
+
   build_firmware "heltec_v4_repeater_bridge_espnow"
   build_firmware "MTL_1_repeater_bridge_espnow"
   build_firmware "MTL_1_SX1268_repeater_bridge_espnow"
