@@ -138,7 +138,9 @@ build_firmware() {
   ENV_PLATFORM=($(get_platform_for_env $1))
 
   # get git commit sha
-  COMMIT_HASH=$(git rev-parse --short HEAD)
+  if [ -z "$COMMIT_HASH" ]; then
+    COMMIT_HASH=$(git rev-parse --short HEAD)
+  fi
 
   # set firmware build date
   FIRMWARE_BUILD_DATE=$(date '+%d-%b-%Y')
@@ -151,8 +153,7 @@ build_firmware() {
 
   # set firmware version string
   # e.g: v1.0.0-abcdef
-  # FIRMWARE_VERSION_STRING="${FIRMWARE_VERSION}-${COMMIT_HASH}"
-  FIRMWARE_VERSION_STRING="${FIRMWARE_VERSION}"
+  FIRMWARE_VERSION_STRING="${FIRMWARE_VERSION}-${COMMIT_HASH}"
 
   # craft filename
   # e.g: RAK_4631_Repeater-v1.0.0-SHA
