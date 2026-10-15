@@ -260,6 +260,11 @@ protected:
     // not supported
   }
 
+  void onCLICommandRecv(const ContactInfo &from, mesh::Packet *pkt,
+                      uint32_t sender_timestamp, const char *text, char *reply) override {
+    // not supported
+  }
+
   uint8_t onContactRequest(const ContactInfo &contact, uint32_t sender_timestamp, const uint8_t *data, uint8_t len,
                            uint8_t *reply) override {
     return 0; // unknown
