@@ -4,8 +4,17 @@
 #include <Arduino.h>
 #include <target.h>
 
-#define AUTO_OFF_MILLIS      10000  // 10 seconds
+#ifndef AUTO_OFF_MILLIS
+  #define AUTO_OFF_MILLIS      15000  // 15 seconds (0 on e-ink, e.g. LilyGo T-Echo)
+#endif
 #define BOOT_SCREEN_MILLIS   4000   // 4 seconds
+
+// E-ink partial refresh drives the whole panel with a weak waveform, so pixels that
+// don't change slowly fade. Periodically repaint the panel (splash frame -> content
+// frame) to restore contrast. Lower = crisper but more visible "flash" during redraw.
+#ifndef EINK_RESTORE_MILLIS
+  #define EINK_RESTORE_MILLIS  60000
+#endif
 
 // 'meshcore', 128x13px
 static const uint8_t meshcore_logo [] PROGMEM = {
@@ -30,6 +39,16 @@ void UITask::begin(const char* name, const char* group) {
   _display->turnOn();
 
   sprintf(_node_name, "%s in %s", name, group);
+
+  // Draw a distinct splash first: e-ink partial refresh only repaints changed
+  // pixels, so the real screen must differ from the previous frame to be drawn
+  // (same idea as companion_radio "Loading..." / repeater "Please wait...").
+  _display->startFrame();
+  _display->setTextSize(1);
+  _display->drawTextCentered(_display->width() / 2, 28, "Loading...");
+  _display->endFrame();
+
+  _next_reset = millis() + EINK_RESTORE_MILLIS;
 }
 
 void UITask::renderCurrScreen() {
@@ -114,10 +133,12 @@ void UITask::loop(const bool quiet, const unsigned long total_request, const uns
   }
 #endif
 
+#if AUTO_OFF_MILLIS > 0
   if (millis() > _auto_off + 110000) {
     _display->turnOn();
     _auto_off = millis() + AUTO_OFF_MILLIS;
   }
+#endif
 
   _quiet = quiet;
   _last_msg_count = last_msg_count;
@@ -127,19 +148,27 @@ void UITask::loop(const bool quiet, const unsigned long total_request, const uns
 
   if (_display->isOn()) {
     if (millis() >= _next_refresh) {
-      if (millis() >= _next_reset && _display->isEink()) {
-        _display->begin();
-        _next_reset = millis() + 600000;
+      if (_display->isEink() && millis() >= _next_reset) {
+        // periodic contrast restore: draw a splash frame first, so the following
+        // content frame is a big change and repaints the whole panel (see above)
+        _display->startFrame();
+        _display->setTextSize(1);
+        _display->drawTextCentered(_display->width() / 2, 28, "...");
+        _display->endFrame();
+        _next_reset = millis() + EINK_RESTORE_MILLIS;
       }
-
       _display->startFrame();
       renderCurrScreen();
       _display->endFrame();
-      _next_refresh = millis() + 120000;
+      // like companion_radio/simple_repeater: don't redraw continuously. For e-ink
+      // refresh rarely; endFrame() only pushes to the panel when the content (CRC) changed.
+      _next_refresh = millis() + (_display->isEink() ? 10000 : 1000);
     }
+#if AUTO_OFF_MILLIS > 0
     if (millis() > _auto_off) {
       _display->turnOff();
     }
+#endif
   }
 
   // power off blue LED
