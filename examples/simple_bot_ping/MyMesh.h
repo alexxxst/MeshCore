@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "Bot v1.6, @1.17.1"
-#define FIRMWARE_BUILD_TEXT "(15-09-2026)"
+#define FIRMWARE_VER_TEXT   "Bot v1.6.1, @1.18.0"
+#define FIRMWARE_BUILD_TEXT "(15-10-2026)"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
