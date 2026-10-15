@@ -59,10 +59,6 @@ struct RepeaterStats {
   uint32_t n_recv_errors;
 };
 
-#ifndef MAX_CLIENTS
-  #define MAX_CLIENTS           32
-#endif
-
 #define MAX_PATH_PREFIX_LEN  4
 #define MAX_BLACKLIST_ENTRIES 30
 #define MAX_CHAN_NAME_FILTERS 15
@@ -89,11 +85,11 @@ struct NeighbourInfo {
 };
 
 #ifndef FIRMWARE_BUILD_DATE
-  #define FIRMWARE_BUILD_DATE   "04 Oct 2026"
+  #define FIRMWARE_BUILD_DATE   "15 Oct 2026"
 #endif
 
 #ifndef FIRMWARE_VERSION
-  #define FIRMWARE_VERSION   "v1.17.1-pr2343"
+  #define FIRMWARE_VERSION   "v1.18.0-pr2343"
 #endif
 
 #define FIRMWARE_ROLE "repeater"
@@ -230,6 +226,9 @@ public:
   const char* getNodeName() { return _prefs.node_name; }
   NodePrefs* getNodePrefs() {
     return &_prefs;
+  }
+  bool isHiddenNode() const {
+    return _prefs.advert_interval == 0 && _prefs.flood_advert_interval == 0;
   }
 
   void savePrefs() override {
