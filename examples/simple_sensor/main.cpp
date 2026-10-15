@@ -52,6 +52,9 @@ void halt() {
 
 static char command[160];
 
+// For power saving
+unsigned long POWERSAVING_FIRSTSLEEP_SECS = 120; // The first sleep (if enabled) from boot
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -60,6 +63,12 @@ void setup() {
 
 #ifdef HAS_EXTERNAL_WATCHDOG
   external_watchdog.begin();
+#endif
+
+#if defined(MESH_DEBUG) && defined(NRF52_PLATFORM)
+  // give some extra time for serial to settle so
+  // boot debug messages can be seen on terminal
+  delay(5000);
 #endif
 
 #ifdef DISPLAY_CLASS
@@ -105,6 +114,15 @@ void setup() {
   mesh::Utils::printHex(Serial, the_mesh.self_id.pub_key, PUB_KEY_SIZE); Serial.println();
 
   command[0] = 0;
+
+#if ENV_INCLUDE_GPS == 1
+  // Apply PowerSaving profile for GPS
+  if (sensors.getLocationProvider() != NULL) {
+    // GPS on and off duration in seconds
+    sensors.getLocationProvider()->setPowerSavingProfile(the_mesh.getNodePrefs()->powersaving_enabled, 600,
+                                                         86400); // Max 10 minutes, 1 day
+  }
+#endif
 
   sensors.begin();
 
@@ -164,4 +182,19 @@ void loop() {
 #ifdef HAS_EXTERNAL_WATCHDOG
   external_watchdog.loop();
 #endif
+
+  if (the_mesh.getNodePrefs()->powersaving_enabled && !the_mesh.hasPendingWork()) {
+#if defined(NRF52_PLATFORM)
+    board.sleep(0); // nrf ignores seconds param, sleeps whenever possible
+#else
+    if (the_mesh.millisHasNowPassed(POWERSAVING_FIRSTSLEEP_SECS * 1000)) { // To check if it is time to sleep
+      board.sleep(30); // Sleep. Wake up after a while or when receiving a LoRa packet
+    }
+#endif
+  }
+
+  if (the_mesh.getNodePrefs()->reboot_interval > 0 &&
+      the_mesh.millisHasNowPassed(the_mesh.getNodePrefs()->reboot_interval * 3600000)) {
+    board.reboot();
+  }
 }

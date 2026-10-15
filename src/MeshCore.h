@@ -37,6 +37,15 @@
 #define BRIDGE_DEBUG_PRINTLN(...) {}
 #endif
 
+#if POWERSAVING_DEBUG && ARDUINO
+  #include <Arduino.h>
+  #define POWERSAVING_DEBUG_PRINT(F, ...) Serial.printf("POWERSAVING: " F, ##__VA_ARGS__)
+  #define POWERSAVING_DEBUG_PRINTLN(F, ...) Serial.printf("POWERSAVING: " F "\n", ##__VA_ARGS__)
+#else
+  #define POWERSAVING_DEBUG_PRINT(...) {}
+  #define POWERSAVING_DEBUG_PRINTLN(...) {}
+#endif
+
 namespace mesh {
 
 #define  BD_STARTUP_NORMAL     0  // getStartupReason() codes
@@ -53,6 +62,7 @@ public:
   virtual void onAfterTransmit() { }
   virtual void reboot() = 0;
   virtual void powerOff() { /* no op */ }
+  virtual void enterDeepSleep(uint32_t secs) { /* no op */ }
   // Called by example setup() functions to signal that boot is complete.
   // Boards may override to stop a boot-indicator LED sequence or similar.
   // Default no-op: boards that don't care need not implement anything.
@@ -90,6 +100,8 @@ public:
   // Called from the example main loops. Lets a board feed its watchdog and
   // run periodic housekeeping. Default no-op.
   virtual void loop() { /* no op */ }
+
+  inline static uint32_t n_cad_busy = 0;
 };
 
 /**

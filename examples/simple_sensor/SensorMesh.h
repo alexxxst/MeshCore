@@ -53,6 +53,9 @@ public:
   void loop();
   void handleCommand(ClientInfo* from, uint32_t sender_timestamp, char* command, char* reply);
 
+  // To check if there is pending work
+  bool hasPendingWork() const;
+
   // CommonCLI callbacks
   const char* getFirmwareVer() override { return FIRMWARE_VERSION; }
   const char* getBuildDate() override { return FIRMWARE_BUILD_DATE; }
@@ -171,7 +174,7 @@ private:
 
   void sendAlert(const ClientInfo* c, Trigger* t);
 
-  #if ENV_INCLUDE_GPS == 1
+#if ENV_INCLUDE_GPS == 1
   void applyGpsPrefs() {
     sensors.setSettingValue("gps", _prefs.gps_enabled?"1":"0");
   }

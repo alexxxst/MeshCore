@@ -65,14 +65,12 @@ public:
     return isSolarChargerActive() || isUsbPowered();
   }
 
-  void powerOff() override {
+  void shutdownPeripherals() override {
+    NRF52Board::shutdownPeripherals();
 
     // turn off all leds, sd_power_system_off will not do this for us
     #ifdef P_LORA_TX_LED
     digitalWrite(P_LORA_TX_LED, LOW);
     #endif
-
-    // power off board
-    NRF52Board::powerOff();
   }
 };

@@ -31,14 +31,30 @@ mesh::LocalIdentity radio_new_identity() {
 
 void SolarSensorManager::start_gps() {
   if (!gps_active) {
-    gps_active = true;
+    if (_location->isPowerSavingEnabled()) {
+      gps_wake = true;           // gps_active is true
+      _location->syncTime();     // Clear GPS data and force sync time
+      _location->setNextSleep(); // Next time to off
+    } else {
+      gps_active = true;
+      gps_wake = true;
+    }
+
     _location->begin();
   }
 }
 
 void SolarSensorManager::stop_gps() {
   if (gps_active) {
-    gps_active = false;
+    if (_location->isPowerSavingEnabled()) {
+      gps_wake = false;      // gps_active is unchanged (true) even the GPS sleep (e.g: off)
+      _location->stopTimeSync(); // Stop time sync
+      _location->setNextWake();  // Next time to on
+    } else {
+      gps_active = false;
+      gps_wake = false; // When GPS is off, wake is false to be sure
+    }
+
     _location->stop();
   }
 }
@@ -68,16 +84,51 @@ bool SolarSensorManager::querySensors(uint8_t requester_permissions, CayenneLPP&
 void SolarSensorManager::loop() {
   static long next_gps_update = 0;
 
-  _location->loop();
+  // PowerSaving
+  if (_location->isPowerSavingEnabled() && gps_detected && gps_active) {
+    // Handle change in PowerSaving mode
+    _location->updatePowerSavingSettings(gps_wake);
 
-  if (millis() > next_gps_update) {
-    if (_location->isValid()) {
-      node_lat = ((double)_location->getLatitude())/1000000.;
-      node_lon = ((double)_location->getLongitude())/1000000.;
-      node_altitude = ((double)_location->getAltitude()) / 1000.0;
-      MESH_DEBUG_PRINTLN("lat %f lon %f", node_lat, node_lon);
+    if (gps_wake) {
+      // GPS is awake: check whether it should sleep
+      if ((int32_t)(millis() - _location->getNextSleep()) >= 0) {
+        POWERSAVING_DEBUG_PRINTLN("GPS wake timeout. Enter sleep");
+        stop_gps();
+      } else if (!_location->waitingTimeSync()) {
+        POWERSAVING_DEBUG_PRINTLN("GPS set. Enter sleep early");
+        stop_gps();
+      }
+    } else {
+      // GPS is asleep: check whether it should wake
+      if ((int32_t)(millis() - _location->getNextWake()) >= 0) {
+        POWERSAVING_DEBUG_PRINTLN("GPS sleep timeout. Wakeup.");
+        start_gps();
+      } else if (_location->waitingTimeSync()) {
+        POWERSAVING_DEBUG_PRINTLN("CLI gps sync. Wakeup");
+        start_gps();
+      }
     }
-    next_gps_update = millis() + 1000;
+  }
+
+  if ((!_location->isPowerSavingEnabled() && gps_active) || (_location->isPowerSavingEnabled() && gps_wake)) {
+    _location->loop();
+  }
+
+  if ((int32_t)(millis() - next_gps_update) >= 0) {
+    if ((!_location->isPowerSavingEnabled() && gps_active) || (_location->isPowerSavingEnabled() && gps_wake)) {
+      if (_location->isValid()) {
+        node_lat = ((double)_location->getLatitude()) / 1000000.;
+        node_lon = ((double)_location->getLongitude()) / 1000000.;
+        MESH_DEBUG_PRINTLN("lat %f lon %f", node_lat, node_lon);
+        node_altitude = ((double)_location->getAltitude()) / 1000.0;
+        MESH_DEBUG_PRINTLN("lat %f lon %f alt %f", node_lat, node_lon, node_altitude);
+      }
+
+      // In powersaving mode, GPS is on and off. Only update data when GPS is on
+      if (_location->isPowerSavingEnabled()) next_gps_update = millis() + 1000;
+    }
+
+    if (!_location->isPowerSavingEnabled()) next_gps_update = millis() + 1000;
   }
 }
 
@@ -99,8 +150,10 @@ const char* SolarSensorManager::getSettingValue(int i) const {
 bool SolarSensorManager::setSettingValue(const char* name, const char* value) {
   if (gps_detected && strcmp(name, "gps") == 0) {
     if (strcmp(value, "0") == 0) {
+      gps_active = false; // Disabled by CLI or App
       stop_gps();
     } else {
+      gps_active = true; // Enabled by CLI or App
       start_gps();
     }
     return true;

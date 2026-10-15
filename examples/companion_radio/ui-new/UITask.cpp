@@ -123,6 +123,14 @@ class HomeScreen : public UIScreen {
   bool discovery_disp_names = true; // by default desplay names if available (removes SNR_O)
 #endif
 
+
+  // Uptime tracking
+  // Stores the last 32-bit millis() value used to calculate elapsed time.
+  // uint32_t naturally handles the ~49.7-day millis() rollover.
+  uint32_t uptime_last_millis = millis();
+  // 64-bit accumulated uptime in milliseconds.
+  // Allows uptime to continue beyond the 49.7-day millis() rollover.
+  uint64_t uptime_millis = 0;
   void renderBatteryIndicator(DisplayDriver& display, uint16_t batteryMilliVolts) {
     // Convert millivolts to percentage
 #ifndef BATT_MIN_MILLIVOLTS
@@ -174,6 +182,32 @@ class HomeScreen : public UIScreen {
       display.drawXbm(iconX - (charging ? 18 : 9), iconY + 1, muted_icon, 8, 8);
     }
 #endif
+
+    // Uptime
+    uint32_t now = millis();
+    uptime_millis += (uint32_t)(now - uptime_last_millis);
+    uptime_last_millis = now;
+
+    uint64_t uptimeMinutes = uptime_millis / 60000ULL;
+
+    unsigned long days = uptimeMinutes / 1440;
+    unsigned long hours = (uptimeMinutes % 1440) / 60;
+    unsigned long minutes = uptimeMinutes % 60;
+    char uptime[16];
+    if (days > 0) {
+      snprintf(uptime, sizeof(uptime), "%lud %luh", days, hours);
+    } else if (hours > 0) {
+      snprintf(uptime, sizeof(uptime), "%luh %lum", hours, minutes);
+    } else {
+      snprintf(uptime, sizeof(uptime), "%lum", minutes);
+    }
+
+    display.setTextSize(1);
+    int uptimeWidth = display.getTextWidth(uptime);
+    int uptimeX = display.width() - uptimeWidth - 2;
+    int uptimeY = iconY + iconHeight + 1;
+    display.setCursor(uptimeX, uptimeY);
+    display.print(uptime);
   }
 
   CayenneLPP sensors_lpp;
@@ -270,7 +304,7 @@ public:
       display.setColor(UIColor::title_bkg);
     }
     int y = 14;
-    int x = display.width() / 2 - 5 * (HomePage::Count-1);
+    int x = 5;
     for (uint8_t i = 0; i < HomePage::Count; i++, x += 10) {
       if (i == _page) {
         display.fillRect(x-1, y-1, 4, 4);
