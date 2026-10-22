@@ -1,7 +1,8 @@
 #include "MyMesh.h"
 #include "RTClib.h"
+#include <helpers/UTF8Helpers.h>
 
-void MyMesh::saveStats() {
+bool MyMesh::saveStats() {
 #if defined(NRF52_PLATFORM)
   _fs->remove("/node_stats");
   File file = _fs->open("/node_stats", FILE_O_WRITE);
@@ -30,16 +31,41 @@ void MyMesh::saveStats() {
       wrote += file.write(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].advert_time), sizeof(_stats.repeaters[i].advert_time));
       wrote += file.write(reinterpret_cast<uint8_t *>(&_stats.repeaters[i].update_time), sizeof(_stats.repeaters[i].update_time));
     }
-    // Serial.printf("Stats wrote %d from %d bytes", wrote, sizeof(_stats));
-    // Serial.println();
+
+    const size_t expected =
+      sizeof(_stats.total_request) + sizeof(_stats.total_received) + sizeof(_stats.total_sent) +
+      sizeof(_stats.total_thanks) + sizeof(_stats.total_ignores) + sizeof(_stats.total_hops) +
+      sizeof(_stats.max_hops) + sizeof(_stats.max_path) + sizeof(_stats.time_start) +
+      sizeof(_stats.num_repeaters) +
+      static_cast<size_t>(_stats.num_repeaters) *
+        (sizeof(_stats.repeaters[0].pub_key) + sizeof(_stats.repeaters[0].name) +
+         sizeof(_stats.repeaters[0].first_count) + sizeof(_stats.repeaters[0].total_count) +
+         sizeof(_stats.repeaters[0].advert_time) + sizeof(_stats.repeaters[0].update_time));
+
+    const bool ok = wrote == expected;
     file.close();
+    return ok;
   }
+  return false;
 }
 
 void MyMesh::resetStats() {
-  // stats reset always reboots, so no need to reset in-memory state here
   _fs->remove("/node_stats");
+  // Also clear in-memory state, so a failed/reboot-less reset can't write the
+  // old counters back to flash later.
+  memset(&_stats, 0, sizeof(_stats));
   stats_dirty = false;
+}
+
+void MyMesh::flushStats() {
+  if (saveStats()) {
+    stats_dirty = false;
+  } else {
+    Serial.println("   ERROR: unable to save stats");
+  }
+  // Throttle retries even on failure; otherwise a broken filesystem would be
+  // hammered on every loop() iteration.
+  last_stats_save = _ms->getMillis();
 }
 
 void MyMesh::loadStats() {
@@ -84,19 +110,31 @@ void MyMesh::loadStats() {
   }
 }
 
-void MyMesh::setClock(const uint32_t timestamp) const {
+bool MyMesh::setClock(const uint32_t timestamp) const {
 #if ENV_INCLUDE_GPS == 1
   if (_prefs.gps_enabled == 1) {
-    LocationProvider * nmea = sensors.getLocationProvider();
+    LocationProvider *nmea = sensors.getLocationProvider();
     if (nmea != nullptr) {
-      nmea->syncTime();
-      Serial.println("   (GPS clock!)");
-      return;
+      // Prefer a valid GPS time. syncTime() is asynchronous, so set the RTC
+      // from the GPS timestamp directly and report failure when there is no fix.
+      if (nmea->isValid()) {
+        const long gps_time = nmea->getTimestamp();
+        if (gps_time > 0 && isTimestampValid(static_cast<uint32_t>(gps_time))) {
+          getRTCClock()->setCurrentTime(static_cast<uint32_t>(gps_time));
+          Serial.println("   (GPS clock!)");
+          return true;
+        }
+      }
+      return false;
     }
   }
 #endif
+  if (!isTimestampValid(timestamp) || !isTimestampValid(timestamp + 1)) {
+    return false;
+  }
   getRTCClock()->setCurrentTime(timestamp + 1);
   Serial.println("   (OK - clock set!)");
+  return true;
 }
 
 void MyMesh::importCard(const char* command) {
@@ -133,9 +171,9 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   total_received++;
 
   Serial.printf("   %s (%dh, %db)\n", text, path_hash_count, path_hash_size);
-  if (!clock_set) {
-    setClock(timestamp);
-    clock_set = true;
+  bool clock_ok = isClockValid();
+  if (!clock_ok) {
+    clock_ok = setClock(timestamp);
   }
 
   unsigned int time = getRTCClock()->getCurrentTime();
@@ -144,7 +182,9 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   if (time != timestamp && _prefs.gps_enabled == 0 && total_received % 5 == 0) {
     if ((timestamp < time && time - timestamp < 3600) || (timestamp > time && timestamp - time < 3600)) {
       time = static_cast<unsigned int>((time + timestamp) / 2);
-      setClock(time - 1);
+      if (!setClock(time - 1)) {
+        time = getRTCClock()->getCurrentTime();
+      }
     }
   }
 
@@ -152,7 +192,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   digitalWrite(LED_BLUE, LOW);
 #endif
 
-  if (_stats.time_start == 0 && clock_set) {
+  if (_stats.time_start == 0 && clock_ok) {
     _stats.time_start = time + 1;
   }
 
@@ -180,8 +220,10 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   }
 
   message[0] = 0;
-  char _from[40], _text[180];
-  if (sscanf(text, "%39[^:]: %179[^\n]", _from, _text) > 0) {
+  char _from[40]{}, _text[180]{};
+  // Only handle well-formed "sender: text" messages. Requiring both fields
+  // avoids reading an uninitialized _text when the sender/colon is malformed.
+  if (sscanf(text, "%39[^:]: %179[^\n]", _from, _text) == 2) {
 
     if (current_channel == bot_channel_idx) {
       // ping
@@ -201,7 +243,14 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
               offset += snprintf(_path + offset, sizeof(_path) - offset, "%02X", pkt->path[i + _i]);
             }
             offset += snprintf(_path + offset, sizeof(_path) - offset, ",");
-            Repeater *repeater = searchRepeaterByPubKey(prefix, path_hash_size);
+            // Try the full path hash first, then shorter prefixes. This lets a
+            // repeater first seen via a 1-byte path be matched by later adverts
+            // or longer paths.
+            Repeater *repeater = nullptr;
+            for (int prefix_len = path_hash_size; prefix_len >= 1; prefix_len--) {
+              repeater = searchRepeaterByPubKey(prefix, prefix_len);
+              if (repeater != nullptr) break;
+            }
             if (repeater == nullptr) {
               repeater = createRepeater(prefix);
             }
@@ -240,7 +289,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
         // stats
         if (strstr(_text, "stats") != nullptr || strstr(_text, "статистика") != nullptr) {
           char uptime[16];
-          formatUptime(time - _stats.time_start - 1, uptime, sizeof(uptime));
+          formatUptimeSince(time, _stats.time_start, uptime, sizeof(uptime));
           snprintf(message, sizeof(message), "Cтaтa зa: %s\n oтвeты: %u из %u\n кaнaл: %u, зa %dм: %u\n хoпы: %u, peпы: %u",
                   uptime, _stats.total_sent, _stats.total_request, _stats.total_received, QUIET_LIMIT_TIME,
                   last_msg_count, _stats.total_hops, _stats.num_repeaters);
@@ -472,9 +521,10 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
     stats_dirty = true;
   }
 
-  if (clock_set && total_sent > MESSAGES_TO_REBOOT) {
+  if (isClockValid() && total_sent > MESSAGES_TO_REBOOT) {
     const auto dt = DateTime(time);
     if (dt.hour() > 2) {
+      flushStats();
       board.reboot();
     }
   }
@@ -503,8 +553,9 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
     // full key search first
     Repeater *repeater = searchRepeaterByPubKey(contact.id.pub_key);
     if (repeater == nullptr) {
-      // prefix search
-      for (int i = 3; i >= PATH_HASH_MODE; i--) {
+      // Prefix search: try every supported path hash size, including 1-byte
+      // paths, so repeaters first learned from a short path can be upgraded.
+      for (int i = 3; i >= 1; i--) {
         repeater = searchRepeaterByPubKey(contact.id.pub_key, i);
         if (repeater != nullptr) {
           break;
@@ -516,15 +567,16 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
     } else {
       to_send = addRepeater(contact);
     }
-    if (to_send && clock_set && time - _stats.time_start > 24 * 3600) {
+    if (to_send && isClockValid() && _stats.time_start != 0 && time - _stats.time_start > 24 * 3600) {
       char hex[6]{};
       mesh::Utils::toHex(hex, contact.id.pub_key, PATH_HASH_MODE);
       snprintf(message, sizeof(message), "📡Бип-бип-бип, oбнapyжeн нoвый peпитep: %s %s", hex, contact.name);
       sendMessage(message, bot_channel->channel, PATH_HASH_MODE);
     }
 
-    // check old repeaters every hour when no messages
-    if (clock_set && !to_send && _ms->getMillis() - last_repeater_check > OLD_REPEATER_CHECK * 3600 * 1000) {
+    // Old-repeater cleanup runs on adverts only: if the network is quiet, we
+    // stay quiet too. Throttle it so at most one check happens per interval.
+    if (isClockValid() && !to_send && _ms->getMillis() - last_repeater_check > OLD_REPEATER_CHECK * 3600 * 1000) {
       for (int i = 0; i < _stats.num_repeaters; i++) {
         if (_stats.repeaters[i].advert_time > MAGIC_TIME_1 && _stats.repeaters[i].update_time > MAGIC_TIME_1) {
           if (time - _stats.repeaters[i].advert_time > OLD_REPEATER_TIME * 2 * 86400 && time - _stats.repeaters[i].update_time > OLD_REPEATER_TIME * 86400) {
@@ -548,7 +600,11 @@ MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshT
     // ReSharper disable CppDFAMemoryLeak
     : BaseChatMesh(radio, *new ArduinoMillis(), rng, rtc, *new StaticPoolPacketManager(16), tables) {
   // defaults
-  memset(&_prefs, 0, sizeof(_prefs));
+  // NodePrefs is not trivially copyable (it owns internal serializer wrappers),
+  // so don't memset the whole object. Its member initializers plus the fields
+  // set below cover everything this bot uses.
+  _prefs.guard = 0;
+  memset(_prefs.extra_sf, 0, sizeof(_prefs.extra_sf));
   _prefs.airtime_factor = 1.0;
   strcpy(_prefs.node_name, BOT_NAME);
   _prefs.freq = LORA_FREQ;
@@ -568,7 +624,6 @@ MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshT
   command[0] = 0;
   message[0] = 0;
   tmp_buf[0] = 0;
-  clock_set = false;
 }
 
 void MyMesh::begin(FILESYSTEM &fs) {
@@ -585,16 +640,10 @@ void MyMesh::begin(FILESYSTEM &fs) {
   IdentityStore store(fs, "/identity");
 #endif
   if (!store.load("_main", self_id, _prefs.node_name, sizeof(_prefs.node_name))) {
-    // legacy: node_name was from identity file
-    // Need way to get some entropy to seed RNG
-    Serial.println("Press ENTER to generate key:");
-    char c = 0;
-    while (c != '\n') {
-      // wait for ENTER to be pressed
-      if (Serial.available()) c = Serial.read();
-    }
-
-    static_cast<StdRNG *>(getRNG())->begin(static_cast<long>(millis())); // NOLINT(cppcoreguidelines-pro-type-static-cast-downcast)
+    // No identity yet: generate one immediately instead of blocking on serial
+    // input. The RNG was seeded from the radio's hardware entropy in setup(),
+    // so do not replace that seed with millis() here.
+    Serial.println("No identity found, generating a new key...");
 
     self_id = mesh::LocalIdentity(getRNG()); // create new random identity
     int count = 0;
@@ -638,10 +687,15 @@ void MyMesh::sendMessage(const char *message, const mesh::GroupChannel &channel,
     memcpy(temp, &time, 4); // mostly an extra blob to help make packet_hash unique
     temp[4] = 0;                 // attempt and flags
 
-    // snprintf truncates to buffer size and always null-terminates
-    snprintf(reinterpret_cast<char *>(&temp[5]), sizeof(temp) - 5, "%s: %s", _prefs.node_name, message); // <sender>: <msg>
+    // Compose the full text first, then cut it on a UTF-8 code point boundary.
+    // Plain snprintf() could split a multi-byte character in the middle.
+    char full[320];
+    snprintf(full, sizeof(full), "%s: %s", _prefs.node_name, message); // <sender>: <msg>
+    const size_t text_len = mesh::validUtf8PrefixLength(full, MAX_TEXT_LEN);
+    memcpy(&temp[5], full, text_len);
+    temp[5 + text_len] = 0;
 
-    const unsigned int len = strlen(reinterpret_cast<char *>(&temp[5]));
+    const auto len = static_cast<unsigned int>(text_len);
     const auto pkt = createGroupDatagram(PAYLOAD_TYPE_GRP_TXT, channel, temp, 5 + len);
     if (pkt) {
       sendFlood(pkt, QUIET_LIMIT_PAUSE * 1000, path_hash_size);
@@ -654,9 +708,11 @@ void MyMesh::sendMessage(const char *message, const mesh::GroupChannel &channel,
     last_msg_sent = _ms->getMillis();
     _stats.total_sent++;
     total_sent++;
+    stats_dirty = true;
   } else {
     Serial.printf("Quiet please!\n");
     _stats.total_ignores++;
+    stats_dirty = true;
   }
 }
 
@@ -676,8 +732,9 @@ void MyMesh::handleCommand(const char *command) {
     Serial.println("   (quiet set).");
   } else if (memcmp(command, "time ", 5) == 0) {
     _prefs.gps_enabled = 0;
-    setClock(strtol(&command[5], nullptr, 10));
-    clock_set = true;
+    if (!setClock(static_cast<uint32_t>(strtol(&command[5], nullptr, 10)))) {
+      Serial.println("   (invalid timestamp)");
+    }
   } else if (memcmp(command, "import ", 7) == 0) {
     importCard(&command[7]);
   } else if (memcmp(command, "remove ", 7) == 0 && strlen(command) >= 7 + PATH_HASH_MODE * 2) {
@@ -706,6 +763,7 @@ void MyMesh::handleCommand(const char *command) {
   } else if (memcmp(command, "ver", 3) == 0) {
     Serial.println(FIRMWARE_VER_TEXT " " FIRMWARE_BUILD_TEXT);
   } else if (memcmp(command, "reboot", 6) == 0) {
+    flushStats();
     board.reboot();
   } else if (memcmp(command, "gps off", 7) == 0) {
     _prefs.gps_enabled = 0;
@@ -746,7 +804,7 @@ void MyMesh::handleCommand(const char *command) {
     board.reboot();
   } else if (memcmp(command, "stats", 5) == 0) {
     char uptime[16];
-    formatUptime(getRTCClock()->getCurrentTime() - _stats.time_start - 1, uptime, sizeof(uptime));
+    formatUptimeSince(getRTCClock()->getCurrentTime(), _stats.time_start, uptime, sizeof(uptime));
     snprintf(message, sizeof(message),
             "Bot stats:\n stat time start: %s\n requests: %u\n replies: %u\n for %dm: %u\n thanks: %u\n "
             "ignores: %u\n "
@@ -761,6 +819,7 @@ void MyMesh::handleCommand(const char *command) {
       Serial.println(message);
     }
   } else if (memcmp(command, "shutdown", 8) == 0) {
+    flushStats();
 #ifdef DISPLAY_CLASS
     display.turnOff();
 #endif
@@ -791,32 +850,48 @@ void MyMesh::handleCommand(const char *command) {
 void MyMesh::loop() {
   BaseChatMesh::loop();
 
-  unsigned int len = strlen(command);
-  while (Serial.available() && len < sizeof(command) - 1) {
-    const char c = Serial.read();
-    if (c != '\n') {
-      command[len++] = c;
-      command[len] = 0;
+  size_t len = strlen(command);
+  while (Serial.available()) {
+    const int c = Serial.read();
+    if (c < 0) break;
+
+    Serial.print(static_cast<char>(c));
+
+    if (c == '\r' || c == '\n') {
+      // Accept both CR and LF. For CRLF, the second character just produces an
+      // empty line, which is ignored.
+      if (command_overflow) {
+        command_overflow = false;
+        command[0] = 0;
+        len = 0;
+        Serial.println("   ERROR: command too long");
+      } else if (len > 0) {
+        command[len] = 0;
+        handleCommand(command);
+        command[0] = 0; // reset command buffer
+        len = 0;
+      }
+      continue;
     }
-    Serial.print(c);
-  }
-  if (len == sizeof(command) - 1) {
-    // command buffer full
-    command[sizeof(command) - 1] = '\r';
+
+    if (c == 0) continue; // C strings can't contain embedded NULs
+
+    if (len < sizeof(command) - 1) {
+      command[len++] = static_cast<char>(c);
+      command[len] = 0;
+    } else {
+      // Keep discarding until the end of the line, so a too-long command is
+      // never executed as a truncated one.
+      command_overflow = true;
+    }
   }
 
-  if (len > 0 && command[len - 1] == '\r') {
-    // received complete line
-    command[len - 1] = 0; // replace newline with C string null terminator
-
-    handleCommand(command);
-    command[0] = 0; // reset command buffer
+  if (_stats.time_start == 0 && isClockValid()) {
+    _stats.time_start = getRTCClock()->getCurrentTime() + 1;
   }
 
   if (stats_dirty && _ms->getMillis() - last_stats_save > FLUSH_LIMIT_SECONDS * 1000) {
-    saveStats();
-    stats_dirty = false;
-    last_stats_save = _ms->getMillis();
+    flushStats();
   }
 
 #if ENV_INCLUDE_GPS == 1
@@ -894,12 +969,15 @@ bool MyMesh::removeRepeater(const Repeater &repeater) {
     _stats.repeaters[idx] = _stats.repeaters[idx + 1];
     idx++;
   }
+  _stats.repeaters[_stats.num_repeaters] = Repeater(); // clear stale tail slot
   return true; // success
 }
 
 Repeater *MyMesh::allocateRepeaterSlot() {
   if (_stats.num_repeaters < MAX_CONTACTS) {
-    return &_stats.repeaters[_stats.num_repeaters++];
+    Repeater *repeater = &_stats.repeaters[_stats.num_repeaters++];
+    *repeater = Repeater(); // don't inherit counters from a removed/overwritten slot
+    return repeater;
   }
   if (shouldOverwriteWhenFull()) {
     // Find oldest non-favourite contact by oldest lastmod timestamp
@@ -912,7 +990,9 @@ Repeater *MyMesh::allocateRepeaterSlot() {
       }
     }
     if (oldest_idx >= 0) {
-      return &_stats.repeaters[oldest_idx];
+      Repeater *repeater = &_stats.repeaters[oldest_idx];
+      *repeater = Repeater(); // don't inherit counters from the overwritten slot
+      return repeater;
     }
   }
   return nullptr; // no space, no overwrite or all contacts are all favourites

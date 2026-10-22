@@ -7,7 +7,6 @@
 #ifndef AUTO_OFF_MILLIS
   #define AUTO_OFF_MILLIS      15000  // 15 seconds (0 on e-ink, e.g. LilyGo T-Echo)
 #endif
-#define BOOT_SCREEN_MILLIS   4000   // 4 seconds
 
 // E-ink partial refresh drives the whole panel with a weak waveform, so pixels that
 // don't change slowly fade. Periodically repaint the panel (splash frame -> content

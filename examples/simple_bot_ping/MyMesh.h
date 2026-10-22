@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "Bot v1.6.1, @1.18.0"
-#define FIRMWARE_BUILD_TEXT "(15-10-2026)"
+#define FIRMWARE_VER_TEXT   "Bot v1.7 @1.18.0"
+#define FIRMWARE_BUILD_TEXT "22-10-2026"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -39,7 +39,7 @@
 #define DIRECT_SEND_PERHOP_FACTOR       6.0f
 #define DIRECT_SEND_PERHOP_EXTRA_MILLIS 250
 
-#define FLUSH_LIMIT_SECONDS             60   // seconds for flush
+#define FLUSH_LIMIT_SECONDS             600  // seconds between periodic stats flushes (10 min)
 #define QUIET_LIMIT_SECONDS             5    // seconds to cooldown
 #define QUIET_LIMIT_TIME                5    // minutes to check
 #define QUIET_LIMIT_COUNT               30   // messages to check
@@ -123,19 +123,19 @@ class MyMesh : public BaseChatMesh {
 
   char command[512 + 10]{};
   uint8_t tmp_buf[256]{};
-  uint8_t _buf[256]{};
 
-  bool clock_set = false;
   bool quiet = false;
   bool stats_dirty = false;
+  bool command_overflow = false;
 
   char message[256]{};
 
-  void saveStats();
+  bool saveStats();
+  void flushStats();
   // ReSharper disable once CppHidingFunction
   void resetStats();
   void loadStats();
-  void setClock(uint32_t timestamp) const;
+  bool setClock(uint32_t timestamp) const;
   void importCard(const char *command);
 
 protected:
@@ -155,6 +155,14 @@ protected:
     return "хопов";
   }
 
+  static bool isTimestampValid(const uint32_t timestamp) {
+    return timestamp >= MAGIC_TIME_1 && timestamp <= MAGIC_TIME_2;
+  }
+
+  bool isClockValid() const {
+    return isTimestampValid(getRTCClock()->getCurrentTime());
+  }
+
   static void formatUptime(uint32_t seconds, char *buf, const size_t buf_size) {
     const uint32_t d = seconds / 86400;
     seconds %= 86400;
@@ -169,6 +177,14 @@ protected:
       snprintf(buf, buf_size, "%uм", m);
   }
 
+  static void formatUptimeSince(const uint32_t now, const uint32_t start, char *buf, const size_t buf_size) {
+    if (start == 0 || now < start || !isTimestampValid(now)) {
+      snprintf(buf, buf_size, "n/a");
+      return;
+    }
+    formatUptime(now > start ? now - start - 1 : 0, buf, buf_size);
+  }
+
   static void formatDays(const uint32_t seconds, char *buf, const size_t buf_size) {
     const uint32_t d = seconds / 86400;
     const uint32_t h = seconds / 3600;
@@ -181,6 +197,7 @@ protected:
       snprintf(buf, buf_size, "%uм", m);
   }
 
+  // ReSharper disable once CppParameterMayBeConstPtrOrRef
   static void removeSubstring(char *str, const char *sub) {
     const size_t len_sub = strlen(sub);
     if (len_sub == 0) return;
@@ -234,7 +251,7 @@ protected:
     // not supported
   }
 
-  bool shouldAutoAddContactType(uint8_t type) const override { return true; }
+  bool shouldAutoAddContactType(uint8_t type) const override { return type == ADV_TYPE_REPEATER; }
   bool shouldOverwriteWhenFull() const override { return true; }
   bool isAutoAddEnabled() const override { return true; }
 
