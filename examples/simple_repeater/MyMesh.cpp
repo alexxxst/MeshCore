@@ -1063,9 +1063,198 @@ static bool isShare(const mesh::Packet *packet) {
   return false;
 }
 
+/* ------------------ clock sync from trusted repeaters' adverts ------------------ */
+
+static File openTimeSyncWrite(FILESYSTEM *fs) {
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  fs->remove(TIMESYNC_FILE);
+  return fs->open(TIMESYNC_FILE, FILE_O_WRITE);
+#elif defined(RP2040_PLATFORM)
+  return fs->open(TIMESYNC_FILE, "w");
+#else
+  return fs->open(TIMESYNC_FILE, "w", true);
+#endif
+}
+
+void MyMesh::loadTimeSync() {
+  timesync_list.clear();
+  if (!_fs->exists(TIMESYNC_FILE)) return;
+#if defined(RP2040_PLATFORM)
+  File file = _fs->open(TIMESYNC_FILE, "r");
+#else
+  File file = _fs->open(TIMESYNC_FILE);
+#endif
+  if (file) {
+    uint8_t buf[TimeSyncList::MAX_SERIALIZED];
+    int len = file.read(buf, sizeof(buf));
+    file.close();
+    if (len > 0) {
+      timesync_list.deserialize(buf, len);
+    }
+  }
+}
+
+bool MyMesh::saveTimeSync() {
+  File file = openTimeSyncWrite(_fs);
+  if (!file) return false;
+
+  uint8_t buf[TimeSyncList::MAX_SERIALIZED];
+  size_t len = timesync_list.serialize(buf);
+  bool success = (file.write(buf, len) == len);
+  file.close();
+  return success;
+}
+
+// Called for every valid (signature already verified) advert. The clock is only moved forward, and only
+// by an advert whose signer is in the trusted list, so a forged advert can never change it.
+void MyMesh::applyTimeSyncFromAdvert(const mesh::Identity &id, uint32_t advert_timestamp) {
+  if (timesync_list.count() == 0 || !timesync_list.contains(id.pub_key)) return;
+
+  uint32_t now = getRTCClock()->getCurrentTime();
+  if (!TimeSyncList::shouldAdjust(now, advert_timestamp)) return;
+
+  getRTCClock()->setCurrentTime(advert_timestamp);
+  timesync_has_synced = true;
+  timesync_last_millis = _ms->getMillis();
+  memcpy(timesync_last_key, id.pub_key, sizeof(timesync_last_key));
+  MESH_DEBUG_PRINTLN("%s TimeSync: clock %lu -> %lu", getLogDateTime(), (unsigned long)now,
+                     (unsigned long)advert_timestamp);
+}
+
+// Parses ONE hex token (4..32 bytes) from 's' into out[]. Returns the number of bytes, or -1 if malformed.
+static int parseTimeSyncKeyArg(const char *s, uint8_t *out) {
+  while (*s == ' ') s++;
+  char tok[TIMESYNC_KEY_SIZE * 2 + 1];
+  int n = 0;
+  while (*s && *s != ' ') {
+    if (n >= (int)sizeof(tok) - 1 || !mesh::Utils::isHexChar(*s)) return -1;
+    tok[n++] = *s++;
+  }
+  tok[n] = 0;
+  while (*s == ' ') s++;
+  if (*s != 0 || n == 0 || (n & 1)) return -1;   // trailing junk, empty, or odd number of digits
+  if (!mesh::Utils::fromHex(out, n / 2, tok)) return -1;
+  return n / 2;
+}
+
+#define TIMESYNC_MIN_PREFIX_BYTES   4    // same length the 'neighbors' command shows
+
+void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char *reply) {
+  while (*args == ' ') args++;
+
+  if (*args == 0 || strcmp(args, "list") == 0) {
+    char *dp = reply;   // max ~130 chars, the CLI reply buffer holds 160
+    if (timesync_list.count() == 0) {
+      dp += sprintf(dp, "no trusted repeaters (time sync off)");
+    } else {
+      dp += sprintf(dp, "trusted %d/%d:", timesync_list.count(), TIMESYNC_MAX_TRUSTED);
+      for (int i = 0; i < timesync_list.count(); i++) {
+        char hex[10];
+        mesh::Utils::toHex(hex, timesync_list.get(i), 4);
+        dp += sprintf(dp, " %s", hex);
+      }
+    }
+    if (timesync_has_synced) {
+      char hex[10];
+      mesh::Utils::toHex(hex, timesync_last_key, 4);
+      unsigned long secs_ago = (_ms->getMillis() - timesync_last_millis) / 1000;
+      sprintf(dp, " | last sync %lus ago from %s", secs_ago, hex);
+    }
+    if (sender_timestamp == 0) {   // serial only: also dump the full keys (handy to copy to other repeaters)
+      for (int i = 0; i < timesync_list.count(); i++) {
+        mesh::Utils::printHex(Serial, timesync_list.get(i), TIMESYNC_KEY_SIZE);
+        Serial.printf("\n");
+      }
+    }
+  } else if (memcmp(args, "add ", 4) == 0) {
+    uint8_t key[TIMESYNC_KEY_SIZE];
+    int n = parseTimeSyncKeyArg(&args[4], key);
+    if (n < 0) {
+      strcpy(reply, "Err - bad pubkey (hex)");
+    } else if (n < TIMESYNC_MIN_PREFIX_BYTES) {
+      strcpy(reply, "Err - need at least 8 hex chars");
+    } else {
+      uint8_t full[TIMESYNC_KEY_SIZE];
+      memset(full, 0, sizeof(full));
+      bool resolved = false;
+      if (n == TIMESYNC_KEY_SIZE) {
+        memcpy(full, key, TIMESYNC_KEY_SIZE);
+        resolved = true;
+      } else {
+        // a prefix is only accepted if exactly one neighbour (as shown by 'neighbors') matches it
+        int matches = 0;
+#if MAX_NEIGHBOURS
+        for (int i = 0; i < MAX_NEIGHBOURS; i++) {
+          if (neighbours[i].heard_timestamp > 0 && memcmp(neighbours[i].id.pub_key, key, n) == 0) {
+            if (matches == 0) memcpy(full, neighbours[i].id.pub_key, TIMESYNC_KEY_SIZE);
+            matches++;
+          }
+        }
+#endif
+        if (matches == 1) {
+          resolved = true;
+        } else if (matches > 1) {
+          strcpy(reply, "Err - prefix is ambiguous");
+        } else {
+          strcpy(reply, "Err - no such neighbour, give the full 64-char pubkey");
+        }
+      }
+
+      if (resolved) {
+        if (memcmp(full, self_id.pub_key, TIMESYNC_KEY_SIZE) == 0) {
+          strcpy(reply, "Err - that is this node");
+        } else {
+          TimeSyncList::AddResult res = timesync_list.add(full);
+          if (res == TimeSyncList::FULL) {
+            sprintf(reply, "Err - list full (%d)", TIMESYNC_MAX_TRUSTED);
+          } else if (res == TimeSyncList::ALREADY) {
+            strcpy(reply, "OK - already trusted");
+          } else if (saveTimeSync()) {
+            char hex[10];
+            mesh::Utils::toHex(hex, full, 4);
+            sprintf(reply, "OK - trusted %s (%d/%d)", hex, timesync_list.count(), TIMESYNC_MAX_TRUSTED);
+          } else {
+            strcpy(reply, "Err - added, but could not be saved");
+          }
+        }
+      }
+    }
+  } else if (memcmp(args, "remove ", 7) == 0) {
+    uint8_t key[TIMESYNC_KEY_SIZE];
+    int n = parseTimeSyncKeyArg(&args[7], key);
+    if (n < 0) {
+      strcpy(reply, "Err - bad pubkey (hex)");
+    } else if (n < TIMESYNC_MIN_PREFIX_BYTES) {
+      strcpy(reply, "Err - need at least 8 hex chars");
+    } else {
+      int removed = timesync_list.removeMatching(key, n);
+      if (removed == 0) {
+        strcpy(reply, "Err - not in the list");
+      } else if (saveTimeSync()) {
+        sprintf(reply, "OK - removed %d", removed);
+      } else {
+        strcpy(reply, "Err - removed, but could not be saved");
+      }
+    }
+  } else if (strcmp(args, "clear") == 0) {
+    timesync_list.clear();
+    if (saveTimeSync()) {
+      strcpy(reply, "OK - cleared (time sync off)");
+    } else {
+      strcpy(reply, "Err - cleared, but could not be saved");
+    }
+  } else {
+    strcpy(reply, "Err - timesync [list|add <pubkey>|remove <pubkey>|clear]");
+  }
+}
+
 void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32_t timestamp,
                           const uint8_t *app_data, size_t app_data_len) {
   mesh::Mesh::onAdvertRecv(packet, id, timestamp, app_data, app_data_len); // chain to super impl
+
+  // advert from a trusted repeater? then it may move our clock forward (done before the neighbour update,
+  // so the neighbour's 'heard' time is already on the corrected clock)
+  applyTimeSyncFromAdvert(id, timestamp);
 
   // if this a zero hop advert (and not via 'Share'), add it to neighbours
   if (packet->getPathHashCount() == 0 && !isShare(packet)) {
@@ -1313,6 +1502,10 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   memset(_chan_name_filters, 0, sizeof(_chan_name_filters));
   _num_chan_name_filters = 0;
 
+  timesync_has_synced = false;
+  timesync_last_millis = 0;
+  memset(timesync_last_key, 0, sizeof(timesync_last_key));
+
 #if MAX_NEIGHBOURS
   memset(neighbours, 0, sizeof(neighbours));
 #endif
@@ -1386,6 +1579,7 @@ void MyMesh::begin(FILESYSTEM *fs) {
   // load persisted prefs
   _cli.loadPrefs(_fs);
   acl.load(_fs, self_id);
+  loadTimeSync();
   // TODO: key_store.begin();
   region_map.load(_fs);
   loadBlacklist(PATH_BLACKLIST_FILE, _path_blacklist);
@@ -1939,6 +2133,8 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, ClientInfo* sender, char *
     } else {
       strcpy(reply, "Err - usage: blacklist <path|chan> <list|add|rem|clear> [hex|#name[,...]]");
     }
+  } else if (memcmp(command, "timesync", 8) == 0 && (command[8] == 0 || command[8] == ' ')) {
+    handleTimeSyncCmd(sender_timestamp, &command[8], reply);
   } else{
     _cli.handleCommand(sender_timestamp, command, reply);  // common CLI commands
   }

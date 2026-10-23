@@ -36,6 +36,7 @@
 #include <helpers/RegionMap.h>
 #include <helpers/RoutingPolicy.h>
 #include "RateLimiter.h"
+#include "TimeSync.h"
 
 #ifdef WITH_BRIDGE
 extern AbstractBridge* bridge;
@@ -85,11 +86,11 @@ struct NeighbourInfo {
 };
 
 #ifndef FIRMWARE_BUILD_DATE
-  #define FIRMWARE_BUILD_DATE   "15 Oct 2026"
+  #define FIRMWARE_BUILD_DATE   "23 Oct 2026"
 #endif
 
 #ifndef FIRMWARE_VERSION
-  #define FIRMWARE_VERSION   "v1.18.0-bl-ps"
+  #define FIRMWARE_VERSION   "v1.18.0-bl-ps-ts"
 #endif
 
 #define FIRMWARE_ROLE "repeater"
@@ -132,6 +133,10 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   uint8_t pending_sf;
   uint8_t pending_cr;
   int  matching_peer_indexes[MAX_CLIENTS];
+  TimeSyncList timesync_list;          // trusted repeaters whose adverts may move our clock forward
+  bool timesync_has_synced;
+  unsigned long timesync_last_millis;  // when the clock was last moved (valid if timesync_has_synced)
+  uint8_t timesync_last_key[4];        // which trusted repeater did it (pubkey prefix)
 #if defined(WITH_RS232_BRIDGE)
   RS232Bridge bridge;
 #elif defined(WITH_ESPNOW_BRIDGE)
@@ -145,6 +150,11 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   uint8_t handleAnonClockReq(const mesh::Identity& sender, uint32_t sender_timestamp, const uint8_t* data);
   int handleRequest(ClientInfo* sender, uint32_t sender_timestamp, uint8_t* payload, size_t payload_len);
   mesh::Packet* createSelfAdvert();
+
+  void loadTimeSync();
+  bool saveTimeSync();
+  void applyTimeSyncFromAdvert(const mesh::Identity& id, uint32_t advert_timestamp);
+  void handleTimeSyncCmd(uint32_t sender_timestamp, const char* args, char* reply);
 
   File openAppend(const char* fname);
   bool isLooped(const mesh::Packet* packet, const uint8_t max_counters[]);
