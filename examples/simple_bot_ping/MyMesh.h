@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "Bot v1.7 @1.18.0"
-#define FIRMWARE_BUILD_TEXT "22-10-2026"
+#define FIRMWARE_VER_TEXT   "Bot v1.7.1 @1.18.0"
+#define FIRMWARE_BUILD_TEXT "27-10-2026"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -70,6 +70,7 @@
 #define GROUP_8_PSK                     "KL+P5YNipuSDK8uD+5ubog==" // #testbot
 #define GROUP_9_PSK                     "aorKqTuAa3C2f+tvRp7exQ==" // #ping-pong
 #define GROUP_10_PSK                    "7uZCoHjhfZAoP730t0Pu9A==" // #bot-test
+#define GROUP_11_PSK                    "jnzZCFE5/daMKvG5DvrMuQ==" // #robot
 
 /* -------------------------------------------------------------------------------------- */
 

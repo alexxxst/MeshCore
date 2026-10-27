@@ -672,6 +672,7 @@ void MyMesh::begin(FILESYSTEM &fs) {
   addChannel("channel8", GROUP_8_PSK);
   addChannel("channel9", GROUP_9_PSK);
   addChannel("channel10", GROUP_10_PSK);
+  addChannel("#robot", GROUP_11_PSK);
 
 #if ENV_INCLUDE_GPS == 1
   applyGpsPrefs();
