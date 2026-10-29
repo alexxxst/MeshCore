@@ -228,6 +228,7 @@ build_repeater_firmwares() {
   build_firmware "Heltec_t096_repeater"
   build_firmware "Heltec_t114_repeater"
   build_firmware "GAT562_30S_Mesh_Kit_repeater"
+  build_firmware "ProMicro_repeater"
   build_firmware "MTL_1_repeater"
   build_firmware "MTL_1_SX1268_repeater"
   build_firmware "Tbeam_SX1276_repeater"
