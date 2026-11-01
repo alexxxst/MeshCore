@@ -20,8 +20,8 @@
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
-#define FIRMWARE_VER_TEXT   "Bot v1.7.1 @1.18.0"
-#define FIRMWARE_BUILD_TEXT "27-10-2026"
+#define FIRMWARE_VER_TEXT   "Bot v1.7.2 @1.18.0"
+#define FIRMWARE_BUILD_TEXT "01-11-2026"
 
 #define LORA_FREQ           868.856
 #define LORA_BW             62.5
@@ -44,10 +44,10 @@
 #define QUIET_LIMIT_TIME                5    // minutes to check
 #define QUIET_LIMIT_COUNT               30   // messages to check
 #define QUIET_LIMIT_TIMES               100  // overall limit for timestamps array
-#define QUIET_LIMIT_PAUSE               2.5f // seconds to reply
+#define QUIET_LIMIT_PAUSE               2.0f // seconds to reply
 #define OLD_REPEATER_CHECK              5    // hours
 #define OLD_REPEATER_TIME               7    // days
-#define MESSAGES_TO_REBOOT              400
+#define MESSAGES_TO_REBOOT              1000
 #define MAGIC_TIME_1                    1767214800
 #define MAGIC_TIME_2                    (MAGIC_TIME_1 + 5 * 365 * 86400)
 #define GPS_SYNC_TIME                   ((3600 + 600) * 1000) // 1 hour and 10 minutes

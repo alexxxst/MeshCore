@@ -612,7 +612,7 @@ MyMesh::MyMesh(mesh::Radio &radio, StdRNG &rng, mesh::RTCClock &rtc, SimpleMeshT
   _prefs.sf = LORA_SF;
   _prefs.cr = LORA_CR;
   _prefs.tx_power_dbm = LORA_TX_POWER;
-  _prefs.rx_delay_base = 1.0;
+  _prefs.rx_delay_base = 3.0;
   _prefs.node_lat = 0.0;
   _prefs.node_lon = 0.0;
   _prefs.gps_enabled = 0;
