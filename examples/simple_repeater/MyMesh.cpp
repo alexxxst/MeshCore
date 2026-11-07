@@ -57,6 +57,10 @@ static void applyRxPowerSavingConfig(NodePrefs& prefs, uint8_t sf, float bw) {
   #define ADMIN_PASSWORD "password"
 #endif
 
+#ifndef REPEATER_GUEST_PASSWORD
+  #define REPEATER_GUEST_PASSWORD ""
+#endif
+
 #ifndef SERVER_RESPONSE_DELAY
   #define SERVER_RESPONSE_DELAY 300
 #endif
@@ -1510,28 +1514,31 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   memset(neighbours, 0, sizeof(neighbours));
 #endif
 
-  // defaults
+  // defaults for NEW installs (an existing /prefs.json overrides these)
   _prefs.airtime_factor = 1.0;
-  _prefs.rx_delay_base = 0.0f;   // turn off by default, was 10.0;
-  _prefs.tx_delay_factor = 0.5f; // was 0.25f
-  _prefs.direct_tx_delay_factor = 0.3f; // was 0.2
+  _prefs.rx_delay_base = 3.0f;
+  _prefs.tx_delay_factor = 2.0f;
+  _prefs.direct_tx_delay_factor = 1.0f;
   StrHelper::strncpy(_prefs.node_name, ADVERT_NAME, sizeof(_prefs.node_name));
   _prefs.node_lat = ADVERT_LAT;
   _prefs.node_lon = ADVERT_LON;
   StrHelper::strncpy(_prefs.password, ADMIN_PASSWORD, sizeof(_prefs.password));
+  StrHelper::strncpy(_prefs.guest_password, REPEATER_GUEST_PASSWORD, sizeof(_prefs.guest_password));
   _prefs.freq = LORA_FREQ;
   _prefs.sf = LORA_SF;
   _prefs.bw = LORA_BW;
   _prefs.cr = LORA_CR;
   _prefs.tx_power_dbm = LORA_TX_POWER;
-  _prefs.advert_interval = 1;        // default to 2 minutes for NEW installs
-  _prefs.flood_advert_interval = 47; // 47 hours
+  _prefs.advert_interval = 120;      // stored as minutes/2 => 240 minutes
+  _prefs.flood_advert_interval = 24; // 24 hours
   _prefs.flood_max = 64;
   _prefs.flood_max_unscoped = 64;
   _prefs.flood_max_advert = 8;
   _prefs.interference_threshold = 0; // disabled
-  _prefs.cad_enabled = 0;            // hardware CAD before TX (off by default; 'set cad on')
-  _prefs.loop_detect = LOOP_DETECT_MINIMAL;
+  _prefs.cad_enabled = 1;            // hardware CAD before TX
+  _prefs.agc_reset_interval = 60;    // stored as secs/4 => 240 seconds
+  _prefs.path_hash_mode = 1;         // 2-byte path hash for this repeater's adverts
+  _prefs.loop_detect = LOOP_DETECT_STRICT;
 
   // bridge defaults
   _prefs.bridge_enabled = 1;    // enabled

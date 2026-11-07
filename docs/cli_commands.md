@@ -802,9 +802,17 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
 - `set agc.reset.interval <value>`
 
 **Parameters:**
-- `value`: Interval in seconds, 0-1020, rounded down to a multiple of 4 (17 becomes 16). 0 to disable.
+- `value`: Interval in **seconds**, 0-1020, rounded down to a multiple of 4 (17 becomes 16). `0` disables the periodic AGC reset.
 
-**Default:** `0.0`
+**Default:** `240` (Repeater, factory-fresh, 4 minutes) - `0`, disabled (Room Server, Sensor, Companion)
+
+**Note:** This value is in seconds, not minutes. Internally it is stored as `value / 4`, so the effective interval is always a multiple of 4 seconds. In particular, `240` means **4 minutes**, not 1 minute.
+
+**Examples:**
+- `set agc.reset.interval 4` — every 4 seconds
+- `set agc.reset.interval 60` — every 1 minute
+- `set agc.reset.interval 240` — every 4 minutes
+- `set agc.reset.interval 0` — disable
 
 ---
 
