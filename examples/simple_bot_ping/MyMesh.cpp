@@ -243,14 +243,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
               offset += snprintf(_path + offset, sizeof(_path) - offset, "%02X", pkt->path[i + _i]);
             }
             offset += snprintf(_path + offset, sizeof(_path) - offset, ",");
-            // Try the full path hash first, then shorter prefixes. This lets a
-            // repeater first seen via a 1-byte path be matched by later adverts
-            // or longer paths.
-            Repeater *repeater = nullptr;
-            for (int prefix_len = path_hash_size; prefix_len >= 1; prefix_len--) {
-              repeater = searchRepeaterByPubKey(prefix, prefix_len);
-              if (repeater != nullptr) break;
-            }
+            Repeater *repeater = searchRepeaterByPubKey(prefix, path_hash_size);
             if (repeater == nullptr) {
               repeater = createRepeater(prefix);
             }
@@ -549,13 +542,12 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, const bool is_new, uint8_
 #endif
 
   if (contact.type == ADV_TYPE_REPEATER && checkRepeaterNamePattern(contact.name, strlen(contact.name))) {
-    bool to_send = false;
+    bool to_send;
     // full key search first
     Repeater *repeater = searchRepeaterByPubKey(contact.id.pub_key);
     if (repeater == nullptr) {
-      // Prefix search: try every supported path hash size, including 1-byte
-      // paths, so repeaters first learned from a short path can be upgraded.
-      for (int i = 3; i >= 1; i--) {
+      // prefix search
+      for (int i = 3; i >= PATH_HASH_MODE; i--) {
         repeater = searchRepeaterByPubKey(contact.id.pub_key, i);
         if (repeater != nullptr) {
           break;
