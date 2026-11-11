@@ -134,7 +134,9 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   uint8_t pending_cr;
   int  matching_peer_indexes[MAX_CLIENTS];
   TimeSyncList timesync_list;          // trusted repeaters whose adverts may move our clock forward
+  TimeSyncSources timesync_sources;    // RAM-only replay high-water marks
   bool timesync_has_synced;
+  bool timesync_from_defaults;         // active list came from build-time defaults
   unsigned long timesync_last_millis;  // when the clock was last moved (valid if timesync_has_synced)
   uint8_t timesync_last_key[4];        // which trusted repeater did it (pubkey prefix)
 #if defined(WITH_RS232_BRIDGE)
@@ -153,7 +155,8 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
 
   void loadTimeSync();
   bool saveTimeSync();
-  void applyTimeSyncFromAdvert(const mesh::Identity& id, uint32_t advert_timestamp);
+  void applyTimeSyncFromAdvert(const mesh::Identity& id, const mesh::Packet* packet,
+                               uint32_t advert_timestamp);
   void handleTimeSyncCmd(uint32_t sender_timestamp, const char* args, char* reply);
 
   File openAppend(const char* fname);

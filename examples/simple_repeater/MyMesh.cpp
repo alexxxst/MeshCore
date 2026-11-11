@@ -1,4 +1,5 @@
 #include "MyMesh.h"
+#include "TimeSyncDefaults.h"
 #include <algorithm>
 #include "helpers/radiolib/RXPowerSaving.h"
 
@@ -1082,19 +1083,32 @@ static File openTimeSyncWrite(FILESYSTEM *fs) {
 
 void MyMesh::loadTimeSync() {
   timesync_list.clear();
-  if (!_fs->exists(TIMESYNC_FILE)) return;
+  timesync_from_defaults = false;
+
+  bool loaded = false;
+  if (_fs->exists(TIMESYNC_FILE)) {
 #if defined(RP2040_PLATFORM)
-  File file = _fs->open(TIMESYNC_FILE, "r");
+    File file = _fs->open(TIMESYNC_FILE, "r");
 #else
-  File file = _fs->open(TIMESYNC_FILE);
+    File file = _fs->open(TIMESYNC_FILE);
 #endif
-  if (file) {
-    uint8_t buf[TimeSyncList::MAX_SERIALIZED];
-    int len = file.read(buf, sizeof(buf));
-    file.close();
-    if (len > 0) {
-      timesync_list.deserialize(buf, len);
+    if (file) {
+      uint8_t buf[TimeSyncList::MAX_SERIALIZED];
+      int len = file.read(buf, sizeof(buf));
+      file.close();
+      if (len == 0) {
+        loaded = true;   // a zero-byte file is an explicit empty list: the file wins, sync stays off
+      } else if (len > 0) {
+        loaded = timesync_list.deserialize(buf, len);
+      }
     }
+  }
+
+  if (!loaded) {
+    int invalid = 0;
+    int n = timesync_list.setFromCsv(TIMESYNC_DEFAULT_KEYS, &invalid);
+    timesync_from_defaults = n > 0;
+    MESH_DEBUG_PRINTLN("TimeSync: loaded %d build-time default key(s), %d invalid", n, invalid);
   }
 }
 
@@ -1111,18 +1125,28 @@ bool MyMesh::saveTimeSync() {
 
 // Called for every valid (signature already verified) advert. The clock is only moved forward, and only
 // by an advert whose signer is in the trusted list, so a forged advert can never change it.
-void MyMesh::applyTimeSyncFromAdvert(const mesh::Identity &id, uint32_t advert_timestamp) {
+void MyMesh::applyTimeSyncFromAdvert(const mesh::Identity &id, const mesh::Packet *packet,
+                                     uint32_t advert_timestamp) {
   if (timesync_list.count() == 0 || !timesync_list.contains(id.pub_key)) return;
+  if (advert_timestamp < TIMESYNC_MIN_EPOCH || advert_timestamp >= TIMESYNC_MAX_EPOCH) return;
+  if (!timesync_sources.accept(id.pub_key, advert_timestamp, _ms->getMillis())) return;
 
+  uint8_t hops = packet->getPathHashCount();
+  uint32_t airtime_ms = _radio->getEstAirtimeFor(packet->getRawLength());
+  uint32_t target = TimeSyncList::computeTarget(advert_timestamp, airtime_ms, hops);
+
+  bool strict_zero_hop = hops == 0 && !packet->isRouteFlood() && !isShare(packet);
   uint32_t now = getRTCClock()->getCurrentTime();
-  if (!TimeSyncList::shouldAdjust(now, advert_timestamp)) return;
+  if (!TimeSyncList::shouldAdjust(now, target, strict_zero_hop)) return;
 
-  getRTCClock()->setCurrentTime(advert_timestamp);
+  getRTCClock()->setCurrentTime(target);
   timesync_has_synced = true;
   timesync_last_millis = _ms->getMillis();
   memcpy(timesync_last_key, id.pub_key, sizeof(timesync_last_key));
-  MESH_DEBUG_PRINTLN("%s TimeSync: clock %lu -> %lu", getLogDateTime(), (unsigned long)now,
-                     (unsigned long)advert_timestamp);
+  MESH_DEBUG_PRINTLN("%s TimeSync: clock %lu -> %lu (%s, hops=%u, airtime=%lums)",
+                     getLogDateTime(), (unsigned long)now, (unsigned long)target,
+                     strict_zero_hop ? "zero-hop" : "forward-only", (unsigned)hops,
+                     (unsigned long)airtime_ms);
 }
 
 // Parses ONE hex token (4..32 bytes) from 's' into out[]. Returns the number of bytes, or -1 if malformed.
@@ -1147,7 +1171,7 @@ void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char
   while (*args == ' ') args++;
 
   if (*args == 0 || strcmp(args, "list") == 0) {
-    char *dp = reply;   // max ~130 chars, the CLI reply buffer holds 160
+    char *dp = reply;   // max ~145 chars, the CLI reply buffer holds 160
     if (timesync_list.count() == 0) {
       dp += sprintf(dp, "no trusted repeaters (time sync off)");
     } else {
@@ -1157,6 +1181,7 @@ void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char
         mesh::Utils::toHex(hex, timesync_list.get(i), 4);
         dp += sprintf(dp, " %s", hex);
       }
+      if (timesync_from_defaults) dp += sprintf(dp, " | build defaults");
     }
     if (timesync_has_synced) {
       char hex[10];
@@ -1214,6 +1239,7 @@ void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char
           } else if (res == TimeSyncList::ALREADY) {
             strcpy(reply, "OK - already trusted");
           } else if (saveTimeSync()) {
+            timesync_from_defaults = false;
             char hex[10];
             mesh::Utils::toHex(hex, full, 4);
             sprintf(reply, "OK - trusted %s (%d/%d)", hex, timesync_list.count(), TIMESYNC_MAX_TRUSTED);
@@ -1234,21 +1260,50 @@ void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char
       int removed = timesync_list.removeMatching(key, n);
       if (removed == 0) {
         strcpy(reply, "Err - not in the list");
-      } else if (saveTimeSync()) {
-        sprintf(reply, "OK - removed %d", removed);
       } else {
-        strcpy(reply, "Err - removed, but could not be saved");
+        timesync_sources.clear();
+        if (saveTimeSync()) {
+          timesync_from_defaults = false;
+          sprintf(reply, "OK - removed %d", removed);
+        } else {
+          strcpy(reply, "Err - removed, but could not be saved");
+        }
       }
     }
   } else if (strcmp(args, "clear") == 0) {
     timesync_list.clear();
+    timesync_sources.clear();
+    timesync_has_synced = false;
+    timesync_last_millis = 0;
+    memset(timesync_last_key, 0, sizeof(timesync_last_key));
     if (saveTimeSync()) {
+      timesync_from_defaults = false;
       strcpy(reply, "OK - cleared (time sync off)");
     } else {
       strcpy(reply, "Err - cleared, but could not be saved");
     }
+  } else if (strcmp(args, "defaults") == 0) {
+    int invalid = 0;
+    int n = timesync_list.setFromCsv(TIMESYNC_DEFAULT_KEYS, &invalid);
+    bool removed = !_fs->exists(TIMESYNC_FILE) || _fs->remove(TIMESYNC_FILE);
+    timesync_from_defaults = n > 0;
+    timesync_sources.clear();
+    timesync_has_synced = false;
+    timesync_last_millis = 0;
+    memset(timesync_last_key, 0, sizeof(timesync_last_key));
+    if (!removed) {
+      if (n == 0) {
+        strcpy(reply, "Err - no defaults, but could not remove /timesync");
+      } else {
+        sprintf(reply, "Err - %d default key(s) loaded, but could not remove /timesync", n);
+      }
+    } else if (n == 0) {
+      strcpy(reply, "OK - no build-time defaults (time sync off)");
+    } else {
+      sprintf(reply, "OK - %d default key(s), file removed", n);
+    }
   } else {
-    strcpy(reply, "Err - timesync [list|add <pubkey>|remove <pubkey>|clear]");
+    strcpy(reply, "Err - timesync [list|add <pubkey>|remove <pubkey>|defaults|clear]");
   }
 }
 
@@ -1258,7 +1313,7 @@ void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32
 
   // advert from a trusted repeater? then it may move our clock forward (done before the neighbour update,
   // so the neighbour's 'heard' time is already on the corrected clock)
-  applyTimeSyncFromAdvert(id, timestamp);
+  applyTimeSyncFromAdvert(id, packet, timestamp);
 
   // if this a zero hop advert (and not via 'Share'), add it to neighbours
   if (packet->getPathHashCount() == 0 && !isShare(packet)) {
@@ -1507,6 +1562,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _num_chan_name_filters = 0;
 
   timesync_has_synced = false;
+  timesync_from_defaults = false;
   timesync_last_millis = 0;
   memset(timesync_last_key, 0, sizeof(timesync_last_key));
 

@@ -5,6 +5,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 ## Navigation
 
 - [Operational](#operational)
+- [Time sync](#time-sync)
 - [Neighbors](#neighbors-repeater-only)
 - [Statistics](#statistics)
 - [Logging](#logging)
@@ -96,6 +97,22 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 **Serial Only:** Yes
 
 **Warning:** _**This is destructive!**_
+
+---
+
+## Time sync
+
+- `timesync` / `timesync list` — trusted keys and last sync
+- `timesync add <prefix|pubkey>` — add a key (prefix must match exactly one neighbour)
+- `timesync remove <prefix>` — remove matching keys
+- `timesync clear` — clear the list and save an empty file (sync stays off)
+- `timesync defaults` — load build-time defaults and remove `/timesync`
+
+When `/timesync` does not exist, the node falls back to the build-time default
+trust list (`TIMESYNC_DEFAULT_KEYS`). An existing file wins over the defaults,
+even an empty one, and then time sync stays off until a key is added.
+`timesync defaults` restores the build-time list and removes the file, so the
+defaults are used again in RAM and are never written to flash.
 
 ---
 
