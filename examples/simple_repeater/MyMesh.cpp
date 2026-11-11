@@ -1111,18 +1111,28 @@ bool MyMesh::saveTimeSync() {
 
 // Called for every valid (signature already verified) advert. The clock is only moved forward, and only
 // by an advert whose signer is in the trusted list, so a forged advert can never change it.
-void MyMesh::applyTimeSyncFromAdvert(const mesh::Identity &id, uint32_t advert_timestamp) {
+void MyMesh::applyTimeSyncFromAdvert(const mesh::Identity &id, const mesh::Packet *packet,
+                                     uint32_t advert_timestamp) {
   if (timesync_list.count() == 0 || !timesync_list.contains(id.pub_key)) return;
+  if (advert_timestamp < TIMESYNC_MIN_EPOCH || advert_timestamp >= TIMESYNC_MAX_EPOCH) return;
+  if (!timesync_sources.accept(id.pub_key, advert_timestamp, _ms->getMillis())) return;
 
+  uint8_t hops = packet->getPathHashCount();
+  uint32_t airtime_ms = _radio->getEstAirtimeFor(packet->getRawLength());
+  uint32_t target = TimeSyncList::computeTarget(advert_timestamp, airtime_ms, hops);
+
+  bool strict_zero_hop = hops == 0 && !packet->isRouteFlood() && !isShare(packet);
   uint32_t now = getRTCClock()->getCurrentTime();
-  if (!TimeSyncList::shouldAdjust(now, advert_timestamp, false)) return;
+  if (!TimeSyncList::shouldAdjust(now, target, strict_zero_hop)) return;
 
-  getRTCClock()->setCurrentTime(advert_timestamp);
+  getRTCClock()->setCurrentTime(target);
   timesync_has_synced = true;
   timesync_last_millis = _ms->getMillis();
   memcpy(timesync_last_key, id.pub_key, sizeof(timesync_last_key));
-  MESH_DEBUG_PRINTLN("%s TimeSync: clock %lu -> %lu", getLogDateTime(), (unsigned long)now,
-                     (unsigned long)advert_timestamp);
+  MESH_DEBUG_PRINTLN("%s TimeSync: clock %lu -> %lu (%s, hops=%u, airtime=%lums)",
+                     getLogDateTime(), (unsigned long)now, (unsigned long)target,
+                     strict_zero_hop ? "zero-hop" : "forward-only", hops,
+                     (unsigned long)airtime_ms);
 }
 
 // Parses ONE hex token (4..32 bytes) from 's' into out[]. Returns the number of bytes, or -1 if malformed.
@@ -1258,7 +1268,7 @@ void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32
 
   // advert from a trusted repeater? then it may move our clock forward (done before the neighbour update,
   // so the neighbour's 'heard' time is already on the corrected clock)
-  applyTimeSyncFromAdvert(id, timestamp);
+  applyTimeSyncFromAdvert(id, packet, timestamp);
 
   // if this a zero hop advert (and not via 'Share'), add it to neighbours
   if (packet->getPathHashCount() == 0 && !isShare(packet)) {
@@ -1507,6 +1517,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _num_chan_name_filters = 0;
 
   timesync_has_synced = false;
+  timesync_from_defaults = false;
   timesync_last_millis = 0;
   memset(timesync_last_key, 0, sizeof(timesync_last_key));
 
