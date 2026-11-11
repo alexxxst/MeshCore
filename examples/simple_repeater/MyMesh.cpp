@@ -1115,7 +1115,7 @@ void MyMesh::applyTimeSyncFromAdvert(const mesh::Identity &id, uint32_t advert_t
   if (timesync_list.count() == 0 || !timesync_list.contains(id.pub_key)) return;
 
   uint32_t now = getRTCClock()->getCurrentTime();
-  if (!TimeSyncList::shouldAdjust(now, advert_timestamp)) return;
+  if (!TimeSyncList::shouldAdjust(now, advert_timestamp, false)) return;
 
   getRTCClock()->setCurrentTime(advert_timestamp);
   timesync_has_synced = true;
