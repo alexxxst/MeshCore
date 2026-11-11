@@ -1,4 +1,5 @@
 #include "MyMesh.h"
+#include "TimeSyncDefaults.h"
 #include <algorithm>
 #include "helpers/radiolib/RXPowerSaving.h"
 
@@ -1082,19 +1083,28 @@ static File openTimeSyncWrite(FILESYSTEM *fs) {
 
 void MyMesh::loadTimeSync() {
   timesync_list.clear();
-  if (!_fs->exists(TIMESYNC_FILE)) return;
+  timesync_from_defaults = false;
+
+  bool loaded = false;
+  if (_fs->exists(TIMESYNC_FILE)) {
 #if defined(RP2040_PLATFORM)
-  File file = _fs->open(TIMESYNC_FILE, "r");
+    File file = _fs->open(TIMESYNC_FILE, "r");
 #else
-  File file = _fs->open(TIMESYNC_FILE);
+    File file = _fs->open(TIMESYNC_FILE);
 #endif
-  if (file) {
-    uint8_t buf[TimeSyncList::MAX_SERIALIZED];
-    int len = file.read(buf, sizeof(buf));
-    file.close();
-    if (len > 0) {
-      timesync_list.deserialize(buf, len);
+    if (file) {
+      uint8_t buf[TimeSyncList::MAX_SERIALIZED];
+      int len = file.read(buf, sizeof(buf));
+      file.close();
+      if (len > 0) loaded = timesync_list.deserialize(buf, len);
     }
+  }
+
+  if (!loaded) {
+    int invalid = 0;
+    int n = timesync_list.setFromCsv(TIMESYNC_DEFAULT_KEYS, &invalid);
+    timesync_from_defaults = n > 0;
+    MESH_DEBUG_PRINTLN("TimeSync: loaded %d build-time default key(s), %d invalid", n, invalid);
   }
 }
 
@@ -1167,6 +1177,7 @@ void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char
         mesh::Utils::toHex(hex, timesync_list.get(i), 4);
         dp += sprintf(dp, " %s", hex);
       }
+      if (timesync_from_defaults) dp += sprintf(dp, " | build defaults");
     }
     if (timesync_has_synced) {
       char hex[10];
@@ -1224,6 +1235,7 @@ void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char
           } else if (res == TimeSyncList::ALREADY) {
             strcpy(reply, "OK - already trusted");
           } else if (saveTimeSync()) {
+            timesync_from_defaults = false;
             char hex[10];
             mesh::Utils::toHex(hex, full, 4);
             sprintf(reply, "OK - trusted %s (%d/%d)", hex, timesync_list.count(), TIMESYNC_MAX_TRUSTED);
@@ -1245,6 +1257,7 @@ void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char
       if (removed == 0) {
         strcpy(reply, "Err - not in the list");
       } else if (saveTimeSync()) {
+        timesync_from_defaults = false;
         sprintf(reply, "OK - removed %d", removed);
       } else {
         strcpy(reply, "Err - removed, but could not be saved");
@@ -1253,12 +1266,23 @@ void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char
   } else if (strcmp(args, "clear") == 0) {
     timesync_list.clear();
     if (saveTimeSync()) {
+      timesync_from_defaults = false;
       strcpy(reply, "OK - cleared (time sync off)");
     } else {
       strcpy(reply, "Err - cleared, but could not be saved");
     }
+  } else if (strcmp(args, "defaults") == 0) {
+    int invalid = 0;
+    int n = timesync_list.setFromCsv(TIMESYNC_DEFAULT_KEYS, &invalid);
+    if (_fs->exists(TIMESYNC_FILE)) _fs->remove(TIMESYNC_FILE);
+    timesync_from_defaults = n > 0;
+    if (n == 0) {
+      strcpy(reply, "OK - no build-time defaults (time sync off)");
+    } else {
+      sprintf(reply, "OK - %d default key(s), file removed", n);
+    }
   } else {
-    strcpy(reply, "Err - timesync [list|add <pubkey>|remove <pubkey>|clear]");
+    strcpy(reply, "Err - timesync [list|add <pubkey>|remove <pubkey>|defaults|clear]");
   }
 }
 
