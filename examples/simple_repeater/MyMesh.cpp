@@ -1105,10 +1105,11 @@ void MyMesh::loadTimeSync() {
   }
 
   if (!loaded) {
-    int invalid = 0;
-    int n = timesync_list.setFromCsv(TIMESYNC_DEFAULT_KEYS, &invalid);
-    timesync_from_defaults = n > 0;
-    MESH_DEBUG_PRINTLN("TimeSync: loaded %d build-time default key(s), %d invalid", n, invalid);
+    for (size_t i = 0; i < TIMESYNC_DEFAULT_KEY_COUNT; i++) {
+      timesync_list.add(TIMESYNC_DEFAULT_KEYS[i]);
+    }
+    timesync_from_defaults = timesync_list.count() > 0;
+    MESH_DEBUG_PRINTLN("TimeSync: loaded %d build-time default key(s)", timesync_list.count());
   }
 }
 
@@ -1283,8 +1284,11 @@ void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char
       strcpy(reply, "Err - cleared, but could not be saved");
     }
   } else if (strcmp(args, "defaults") == 0) {
-    int invalid = 0;
-    int n = timesync_list.setFromCsv(TIMESYNC_DEFAULT_KEYS, &invalid);
+    timesync_list.clear();
+    for (size_t i = 0; i < TIMESYNC_DEFAULT_KEY_COUNT; i++) {
+      timesync_list.add(TIMESYNC_DEFAULT_KEYS[i]);
+    }
+    int n = timesync_list.count();
     bool removed = !_fs->exists(TIMESYNC_FILE) || _fs->remove(TIMESYNC_FILE);
     timesync_from_defaults = n > 0;
     timesync_sources.clear();

@@ -1,79 +1,17 @@
 #include <gtest/gtest.h>
-#include <stdio.h>
-#include <string.h>
 #include <TimeSync.h>
 #include <TimeSyncDefaults.h>
 
-static void makeKey(char out[65], uint8_t first) {
-  static const char* hex = "0123456789abcdef";
-  for (int i = 0; i < 64; i += 2) {
-    out[i] = hex[(first >> 4) & 0x0F];
-    out[i + 1] = hex[first & 0x0F];
+TEST(TimeSyncDefaults, HeaderHasExpectedKeys) {
+  EXPECT_EQ(6u, TIMESYNC_DEFAULT_KEY_COUNT);
+  EXPECT_LE(TIMESYNC_DEFAULT_KEY_COUNT, (size_t)TIMESYNC_MAX_TRUSTED);
+  EXPECT_EQ(0xab, TIMESYNC_DEFAULT_KEYS[0][0]);   // PRI-Meb-SE
+  EXPECT_EQ(0x8c, TIMESYNC_DEFAULT_KEYS[5][0]);   // MeshBBS
+
+  TimeSyncList list;
+  for (size_t i = 0; i < TIMESYNC_DEFAULT_KEY_COUNT; i++) {
+    EXPECT_EQ(TimeSyncList::ADDED, list.add(TIMESYNC_DEFAULT_KEYS[i]));
   }
-  out[64] = 0;
-}
-
-TEST(TimeSyncCsv, ParsesFullKeysAndSpaces) {
-  char a[65], b[65];
-  makeKey(a, 0xA1);
-  makeKey(b, 0xB2);
-  char csv[140];
-  snprintf(csv, sizeof(csv), " %s , %s ", a, b);
-
-  TimeSyncList list;
-  int invalid = 0;
-  EXPECT_EQ(2, list.setFromCsv(csv, &invalid));
-  EXPECT_EQ(0, invalid);
-  EXPECT_EQ(2, list.count());
-  EXPECT_EQ(0xA1, list.get(0)[0]);
-  EXPECT_EQ(0xB2, list.get(1)[0]);
-}
-
-TEST(TimeSyncCsv, DropsDuplicatesAndInvalidEntries) {
-  char a[65];
-  makeKey(a, 0xA1);
-  char csv[180];
-  snprintf(csv, sizeof(csv), "%s,%s,zz,%s", a, "abcd", a);
-
-  TimeSyncList list;
-  int invalid = 0;
-  EXPECT_EQ(1, list.setFromCsv(csv, &invalid));
-  EXPECT_EQ(2, invalid);
-  EXPECT_EQ(1, list.count());
-}
-
-TEST(TimeSyncCsv, CapsAtEightKeys) {
-  char csv[700] = {0};
-  char key[65];
-  for (int i = 0; i < 9; i++) {
-    makeKey(key, (uint8_t)(0x10 + i));
-    if (i) strcat(csv, ",");
-    strcat(csv, key);
-  }
-
-  TimeSyncList list;
-  int invalid = 0;
-  EXPECT_EQ(8, list.setFromCsv(csv, &invalid));
-  EXPECT_EQ(1, invalid);
-  EXPECT_EQ(8, list.count());
-}
-
-TEST(TimeSyncCsv, EmptyInputClearsList) {
-  char a[65];
-  makeKey(a, 0xA1);
-  TimeSyncList list;
-  ASSERT_EQ(1, list.setFromCsv(a));
-  int invalid = 0;
-  EXPECT_EQ(0, list.setFromCsv("", &invalid));
-  EXPECT_EQ(0, invalid);
-  EXPECT_EQ(0, list.count());
-}
-
-TEST(TimeSyncCsv, RepositoryDefaultsParse) {
-  TimeSyncList list;
-  int invalid = 0;
-  EXPECT_EQ(6, list.setFromCsv(TIMESYNC_DEFAULT_KEYS, &invalid));
-  EXPECT_EQ(0, invalid);
   EXPECT_EQ(6, list.count());
 }
 

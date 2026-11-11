@@ -54,37 +54,6 @@ public:
     return ADDED;
   }
 
-  // Parses a comma-separated list of full 32-byte keys (64 hex characters
-  // each). Spaces around entries and empty entries are ignored. Malformed
-  // entries and entries beyond capacity increment *invalid (when supplied);
-  // duplicates are dropped silently. The list is replaced even when no entry
-  // is valid.
-  int setFromCsv(const char* csv, int* invalid = nullptr) {
-    TimeSyncList tmp;
-    if (invalid) *invalid = 0;
-    if (csv) {
-      const char* entry = csv;
-      while (true) {
-        const char* comma = strchr(entry, ',');
-        const char* end = comma ? comma : entry + strlen(entry);
-        while (entry < end && (*entry == ' ' || *entry == '\t')) entry++;
-        while (end > entry && (end[-1] == ' ' || end[-1] == '\t')) end--;
-        if (end > entry) {
-          uint8_t key[TIMESYNC_KEY_SIZE];
-          if (parseHexKey(entry, (size_t)(end - entry), key)) {
-            if (tmp.add(key) == FULL && invalid) (*invalid)++;
-          } else if (invalid) {
-            (*invalid)++;
-          }
-        }
-        if (!comma) break;
-        entry = comma + 1;
-      }
-    }
-    *this = tmp;
-    return tmp.count();
-  }
-
   // number of trusted keys that start with the given prefix
   int countMatching(const uint8_t* prefix, size_t len) const {
     if (len == 0 || len > TIMESYNC_KEY_SIZE) return 0;
@@ -162,24 +131,6 @@ public:
   }
 
 private:
-  static int hexValue(char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    return -1;
-  }
-
-  static bool parseHexKey(const char* s, size_t len, uint8_t* out) {
-    if (len != TIMESYNC_KEY_SIZE * 2) return false;
-    for (size_t i = 0; i < TIMESYNC_KEY_SIZE; i++) {
-      int hi = hexValue(s[2 * i]);
-      int lo = hexValue(s[2 * i + 1]);
-      if (hi < 0 || lo < 0) return false;
-      out[i] = (uint8_t)((hi << 4) | lo);
-    }
-    return true;
-  }
-
   int n;
   uint8_t keys[TIMESYNC_MAX_TRUSTED][TIMESYNC_KEY_SIZE];
 };

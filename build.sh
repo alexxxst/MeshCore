@@ -42,8 +42,6 @@ Environment Variables:
                    If not set, debug flags from variant platformio.ini files are used.
   FIRMWARE_VERSION_STRIP: Suffix stripped from FIRMWARE_VERSION when naming the output
                           archive. Defaults to "-meshcore.spb.ru" if not set.
-  TIMESYNC_DEFAULT_KEYS: comma-separated full 64-hex public keys baked in as
-                         the default time-sync trust list.
 
 Examples:
 Build without debug logging:
@@ -167,10 +165,6 @@ build_firmware() {
 
   # add firmware version info to end of existing platformio build flags in environment vars
   export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS} -DFIRMWARE_BUILD_DATE='\"${FIRMWARE_BUILD_DATE}\"' -DFIRMWARE_VERSION='\"${FIRMWARE_VERSION_STRING}\"'"
-
-  if [ -n "${TIMESYNC_DEFAULT_KEYS:-}" ]; then
-    export PLATFORMIO_BUILD_FLAGS="${PLATFORMIO_BUILD_FLAGS} -DTIMESYNC_DEFAULT_KEYS='\"${TIMESYNC_DEFAULT_KEYS}\"'"
-  fi
 
   # disable debug flags if requested
   disable_debug_flags

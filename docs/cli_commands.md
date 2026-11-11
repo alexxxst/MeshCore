@@ -108,11 +108,11 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 - `timesync clear` — clear the list and save an empty file (sync stays off)
 - `timesync defaults` — load build-time defaults and remove `/timesync`
 
-When `/timesync` does not exist, the node falls back to the build-time default
-trust list (`TIMESYNC_DEFAULT_KEYS`). An existing file wins over the defaults,
-even an empty one, and then time sync stays off until a key is added.
-`timesync defaults` restores the build-time list and removes the file, so the
-defaults are used again in RAM and are never written to flash.
+When `/timesync` does not exist, the node falls back to the compiled-in default
+trust list in `examples/simple_repeater/TimeSyncDefaults.h`. An existing file
+wins over the defaults, even an empty one, and then time sync stays off until a
+key is added. `timesync defaults` restores the compiled-in list and removes the
+file, so the defaults are used again in RAM and are never written to flash.
 
 ---
 
