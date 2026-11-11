@@ -1,5 +1,6 @@
 #include "MyMesh.h"
 #include "TimeSyncDefaults.h"
+#include "ListReplyPager.h"
 #include <algorithm>
 #include "helpers/radiolib/RXPowerSaving.h"
 
@@ -487,6 +488,20 @@ bool MyMesh::allowPacketForward(const mesh::Packet *packet) {
       return false;
     }
   }
+  // Advert jail: checked when forwarding rather than on receive, so only adverts
+  // with a valid signature and only the first copy of each count as strikes.
+  if (_prefs.advert_jail_hours > 0 && packet->isRouteFlood()
+      && packet->getPayloadType() == PAYLOAD_TYPE_ADVERT && packet->payload_len >= PUB_KEY_SIZE + 4) {
+    uint32_t advert_time;
+    memcpy(&advert_time, &packet->payload[PUB_KEY_SIZE], 4);
+    if (mesh::checkAdvertJail(_advert_jail, MAX_ADVERT_JAIL_ENTRIES, packet->payload, advert_time,
+                              (uint32_t)millis(),
+                              (uint32_t)_prefs.advert_jail_hours * 3600UL * 1000UL)) {
+      _drops_jail++;
+      MESH_DEBUG_PRINTLN("allowPacketForward: advert jail, dropping!");
+      return false;
+    }
+  }
   return true;
 }
 
@@ -619,30 +634,7 @@ bool MyMesh::isChanBlacklisted(const mesh::Packet* packet) const {
   }
 
   // Check #channel_name entries with test decryption
-  if (_num_chan_name_filters > 0 && packet->payload_len > PATH_HASH_SIZE + CIPHER_MAC_SIZE) {
-    uint8_t channel_hash = packet->payload[0];
-    const uint8_t* macAndData = &packet->payload[PATH_HASH_SIZE];  // MAC + encrypted data
-    int enc_len = packet->payload_len - PATH_HASH_SIZE;
-
-    // decrypt() processes whole CIPHER_BLOCK_SIZE blocks, so a misaligned ciphertext
-    // length would write past 'tmp'; valid packets are always block-aligned.
-    int ct_len = enc_len - CIPHER_MAC_SIZE;
-    if (ct_len <= 0 || (ct_len % CIPHER_BLOCK_SIZE) != 0 || ct_len > MAX_PACKET_PAYLOAD) {
-      MESH_DEBUG_PRINTLN("isChanBlacklisted: unaligned ciphertext length, skipping name filters");
-      return false;
-    }
-
-    for (int i = 0; i < _num_chan_name_filters; i++) {
-      // Quick hash check first
-      if (channel_hash != _chan_name_filters[i].hash[0]) continue;
-      // Try to decrypt to verify this is actually the channel
-      uint8_t tmp[MAX_PACKET_PAYLOAD];
-      int len = mesh::Utils::MACThenDecrypt(_chan_name_filters[i].secret, tmp, macAndData, enc_len);
-      if (len > 0) return true;  // Successfully decrypted, confirmed channel match
-    }
-  }
-
-  return false;
+  return isChanNameFiltered(packet, _chan_name_filters, _num_chan_name_filters);
 }
 
 bool MyMesh::addToBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len) {
@@ -679,60 +671,15 @@ static bool isHexStr(const char* s, int len) {
   return true;
 }
 
-// Appends a "\n(+N more)" truncation indicator, dropping trailing shown entries
-// as needed so the indicator itself always fits. 'ends[k]' holds the char offset
-// (relative to 'reply') just after the k-th shown entry. Caller guarantees count < total.
-// Returns the pointer where the caller should write the terminating null.
-static char* appendMoreSuffix(char* reply, char* end, const int* ends, int count, int total) {
-  char suffix[24];
-  int sl = 0;
-  while (count > 0) {
-    sl = snprintf(suffix, sizeof(suffix), "\n(+%d more)", total - count);
-    if (ends[count - 1] + sl <= (int)(end - reply)) break;
-    count--;
-  }
-  char* dp = reply + (count > 0 ? ends[count - 1] : 0);
-  if (count == 0) {
-    sl = snprintf(suffix, sizeof(suffix), "(+%d more)", total);
-  }
-  if (dp + sl <= end) {
-    memcpy(dp, suffix, sl);
-    dp += sl;
-  }
-  return dp;
-}
-
-void MyMesh::formatBlacklist(const BlacklistEntry* list, char* reply, size_t reply_sz) {
-  if (reply_sz == 0) return;
-  char* end = reply + reply_sz - 1;  // always keep room for the terminating null
-  int total = 0;
-  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
-    if (list[i].len != 0) total++;
-  }
-  int ends[MAX_BLACKLIST_ENTRIES];
-  char* dp = reply;
-  int count = 0;
+void MyMesh::formatBlacklist(const BlacklistEntry* list, char* reply, size_t reply_sz, int offset) {
+  ListReplyPager pager(reply, reply_sz, offset);
   for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
     if (list[i].len == 0) continue;
-    size_t need = (size_t)list[i].len * 2 + (count > 0 ? 1 : 0);
-    if (dp + need > end) break;
-    if (count > 0) *dp++ = '\n';
-    mesh::Utils::toHex(dp, list[i].prefix, list[i].len);
-    dp += list[i].len * 2;
-    ends[count++] = (int)(dp - reply);
+    char hex[MAX_PATH_PREFIX_LEN * 2 + 1];
+    mesh::Utils::toHex(hex, list[i].prefix, list[i].len);
+    pager.add(hex, list[i].len * 2);
   }
-  if (count < total) {
-    dp = appendMoreSuffix(reply, end, ends, count, total);
-  }
-  if (total == 0) {
-    if (reply_sz >= sizeof("-none-")) {
-      strcpy(reply, "-none-");
-    } else {
-      reply[0] = 0;
-    }
-  } else {
-    *dp = 0;
-  }
+  pager.finish();
 }
 
 void MyMesh::loadBlacklist(const char* fname, BlacklistEntry* list) {
@@ -910,49 +857,46 @@ void MyMesh::saveChanBlacklist(const char* fname) {
   f.close();
 }
 
-void MyMesh::formatChanBlacklist(char* reply, size_t reply_sz) {
-  if (reply_sz == 0) return;
-  char* end = reply + reply_sz - 1;  // always keep room for the terminating null
-  int total = 0;
-  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
-    if (_chan_blacklist[i].len != 0) total++;
-  }
-  total += _num_chan_name_filters;
-  int ends[MAX_BLACKLIST_ENTRIES + MAX_CHAN_NAME_FILTERS];
-  char* dp = reply;
-  int count = 0;
-  // Format hex prefix entries
+void MyMesh::formatChanBlacklist(char* reply, size_t reply_sz, int offset) {
+  ListReplyPager pager(reply, reply_sz, offset);
+  // Hex prefix entries first, then the #channel_name entries
   for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
     if (_chan_blacklist[i].len == 0) continue;
-    size_t need = (size_t)_chan_blacklist[i].len * 2 + (count > 0 ? 1 : 0);
-    if (dp + need > end) break;
-    if (count > 0) *dp++ = '\n';
-    mesh::Utils::toHex(dp, _chan_blacklist[i].prefix, _chan_blacklist[i].len);
-    dp += _chan_blacklist[i].len * 2;
-    ends[count++] = (int)(dp - reply);
+    char hex[MAX_PATH_PREFIX_LEN * 2 + 1];
+    mesh::Utils::toHex(hex, _chan_blacklist[i].prefix, _chan_blacklist[i].len);
+    pager.add(hex, _chan_blacklist[i].len * 2);
   }
-  // Format #channel_name entries
   for (int i = 0; i < _num_chan_name_filters; i++) {
-    size_t len = strlen(_chan_name_filters[i].name);
-    size_t need = len + (count > 0 ? 1 : 0);
-    if (dp + need > end) break;
-    if (count > 0) *dp++ = '\n';
-    memcpy(dp, _chan_name_filters[i].name, len);
-    dp += len;
-    ends[count++] = (int)(dp - reply);
+    pager.add(_chan_name_filters[i].name, strlen(_chan_name_filters[i].name));
   }
-  if (count < total) {
-    dp = appendMoreSuffix(reply, end, ends, count, total);
-  }
-  if (total == 0) {
-    if (reply_sz >= sizeof("-none-")) {
-      strcpy(reply, "-none-");
-    } else {
-      reply[0] = 0;
+  pager.finish();
+}
+
+// Jailed advert senders, most strikes first: '<key prefix>:<strikes>/<threshold>'.
+void MyMesh::formatAdvertJail(char* reply, size_t reply_sz, int offset) const {
+  ListReplyPager pager(reply, reply_sz, offset);
+  const AdvertJailEntry* jailed[MAX_ADVERT_JAIL_ENTRIES];
+  int count = 0;
+  for (int i = 0; i < MAX_ADVERT_JAIL_ENTRIES; i++) {
+    if (_advert_jail[i].last_seen != 0 && _advert_jail[i].jailed) {
+      jailed[count++] = &_advert_jail[i];
     }
-  } else {
-    *dp = 0;
   }
+  uint32_t now = millis();
+  std::sort(jailed, jailed + count, [now](const AdvertJailEntry* a, const AdvertJailEntry* b) {
+    if (a->strikes != b->strikes) return a->strikes > b->strikes;
+    return now - a->last_seen < now - b->last_seen;   // most recently heard first
+  });
+
+  for (int i = 0; i < count; i++) {
+    char line[24];
+    char hex[ADVERT_JAIL_KEY_SIZE * 2 + 1];
+    mesh::Utils::toHex(hex, jailed[i]->key, sizeof(jailed[i]->key));
+    int len = snprintf(line, sizeof(line), "%s:%u/%u", hex, (unsigned)jailed[i]->strikes,
+                       (unsigned)ADVERT_JAIL_THRESHOLD);
+    pager.add(line, len);
+  }
+  pager.finish();
 }
 
 mesh::DispatcherAction MyMesh::onRecvPacket(mesh::Packet* pkt) {
@@ -975,12 +919,14 @@ mesh::DispatcherAction MyMesh::onRecvPacket(mesh::Packet* pkt) {
 bool MyMesh::filterRecvFloodPacket(mesh::Packet* pkt) {
   // Drop packets whose path contains a blacklisted node prefix
   if (isPathBlacklisted(pkt)) {
+    _drops_path++;
     MESH_DEBUG_PRINTLN("filterRecvFloodPacket: path prefix blacklisted, dropping!");
     return true;
   }
 
   // Drop group-channel packets whose channel hash is blacklisted
   if (isChanBlacklisted(pkt)) {
+    _drops_chan++;
     MESH_DEBUG_PRINTLN("filterRecvFloodPacket: channel hash blacklisted, dropping!");
     return true;
   }
@@ -1564,6 +1510,8 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   memset(_chan_blacklist,  0, sizeof(_chan_blacklist));
   memset(_chan_name_filters, 0, sizeof(_chan_name_filters));
   _num_chan_name_filters = 0;
+  memset(_advert_jail, 0, sizeof(_advert_jail));
+  _drops_path = _drops_chan = _drops_jail = 0;
 
   timesync_has_synced = false;
   timesync_from_defaults = false;
@@ -1894,6 +1842,7 @@ void MyMesh::clearStats() {
   radio_driver.resetStats();
   resetStats();
   ((SimpleMeshTables *)getTables())->resetStats();
+  _drops_path = _drops_chan = _drops_jail = 0;
 }
 
 // Outpath PR
@@ -2115,14 +2064,15 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, ClientInfo* sender, char *
     }
   } else if (memcmp(command, "blacklist ", 10) == 0) {
     // Commands:
-    //   blacklist path list
+    //   blacklist path list [offset]
     //   blacklist path add <hex>[,<hex>,...]   (each hex = 2-8 even chars → 1-4 bytes)
     //   blacklist path rem <hex>[,<hex>,...]
     //   blacklist path clear
-    //   blacklist chan list
+    //   blacklist chan list [offset]
     //   blacklist chan add <hash|#name>[,<hash|#name>,...]   (hash = 2 hex chars → 1 byte)
     //   blacklist chan rem <hash|#name>[,<hash|#name>,...]
     //   blacklist chan clear
+    //   blacklist stats
     const char* parts[5];
     int n = mesh::Utils::parseTextParts(command, parts, 5, ' ');
 
@@ -2136,11 +2086,15 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, ClientInfo* sender, char *
       is_chan = true;
     }
 
-    if (list && n >= 3 && strcmp(parts[2], "list") == 0) {
+    if (n == 2 && strcmp(parts[1], "stats") == 0) {
+      snprintf(reply, MAX_BLACKLIST_REPLY_LEN, "path:%lu chan:%lu jail:%lu",
+               (unsigned long)_drops_path, (unsigned long)_drops_chan, (unsigned long)_drops_jail);
+    } else if (list && n >= 3 && strcmp(parts[2], "list") == 0) {
+      int offset = (n >= 4) ? atoi(parts[3]) : 0;
       if (is_chan) {
-        formatChanBlacklist(reply, MAX_BLACKLIST_REPLY_LEN);
+        formatChanBlacklist(reply, MAX_BLACKLIST_REPLY_LEN, offset);
       } else {
-        formatBlacklist(list, reply, MAX_BLACKLIST_REPLY_LEN);
+        formatBlacklist(list, reply, MAX_BLACKLIST_REPLY_LEN, offset);
       }
     } else if (list && n >= 3 && strcmp(parts[2], "clear") == 0) {
       memset(list, 0, sizeof(BlacklistEntry) * MAX_BLACKLIST_ENTRIES);
@@ -2198,8 +2152,24 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, ClientInfo* sender, char *
       else if (any_ok && any_err)   strcpy(reply, "OK (partial)");
       else                          strcpy(reply, is_add ? "Err - list full or bad input" : "Err - not found or bad input");
     } else {
-      strcpy(reply, "Err - usage: blacklist <path|chan> <list|add|rem|clear> [hex|#name[,...]]");
+      strcpy(reply, "Err - usage: blacklist <path|chan> <list [offset]|add|rem|clear> [hex|#name[,...]] | blacklist stats");
     }
+  } else if (memcmp(command, "set advert.jail ", 16) == 0) {
+    int hours = atoi(&command[16]);
+    if (hours < 0 || hours > 168) {
+      strcpy(reply, "Err - range is 0-168 hours (0=off)");
+    } else {
+      _prefs.advert_jail_hours = (uint8_t)hours;
+      savePrefs();
+      strcpy(reply, "OK");
+    }
+  } else if (strcmp(command, "get advert.jail") == 0) {
+    sprintf(reply, "> %d", (int)_prefs.advert_jail_hours);
+  } else if (strcmp(command, "jail clear") == 0) {
+    memset(_advert_jail, 0, sizeof(_advert_jail));
+    strcpy(reply, "OK");
+  } else if (strcmp(command, "jail") == 0 || memcmp(command, "jail ", 5) == 0) {
+    formatAdvertJail(reply, MAX_BLACKLIST_REPLY_LEN, command[4] ? atoi(&command[5]) : 0);
   } else if (memcmp(command, "timesync", 8) == 0 && (command[8] == 0 || command[8] == ' ')) {
     handleTimeSyncCmd(sender_timestamp, &command[8], reply);
   } else{

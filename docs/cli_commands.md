@@ -7,6 +7,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 - [Operational](#operational)
 - [Time sync](#time-sync)
 - [Neighbors](#neighbors-repeater-only)
+- [Packet filters](#packet-filters-repeater-only)
 - [Statistics](#statistics)
 - [Logging](#logging)
 - [Information](#info)
@@ -143,6 +144,115 @@ file, so the defaults are used again in RAM and are never written to flash.
 
 **Usage:** 
 - `discover.neighbors`
+
+---
+
+## Packet filters (Repeater Only)
+
+Filters apply to **flood** packets. The path and channel blacklists drop a
+packet when it is received: it is neither handled locally nor forwarded. The
+advert jail runs when a packet is about to be forwarded, so only adverts with
+a valid signature, and only the first copy of each, count against a sender.
+
+List replies are paginated. When a page is full, the reply ends with
+`+N more (list M)`; run the same command with `offset` `M` to see the next
+page.
+
+The lists are stored in `/path_bl` and `/chan_bl` (one entry per line) and
+survive reboots. Limits: 30 path entries, 30 channel hashes and 15 channel
+names.
+
+---
+
+### Path blacklist
+
+**Usage:**
+- `blacklist path list [offset]`
+- `blacklist path add <hex>[,<hex>,...]`
+- `blacklist path rem <hex>[,<hex>,...]`
+- `blacklist path clear`
+
+**Parameters:**
+- `hex`: 2–8 hex characters (1–4 bytes). A flood packet is dropped when any
+  hash in its path starts with an entry, so blacklisting a repeater also drops
+  traffic routed through it.
+
+**Note:** Path hashes are normally 1 byte, so a 1-byte entry matches every node
+with that hash — roughly 1/256 of the mesh. Prefer entries of 2 or more bytes.
+
+**Example:**
+```
+blacklist path add 4a1f,9c
+blacklist path list
+```
+
+---
+
+### Channel blacklist
+
+**Usage:**
+- `blacklist chan list [offset]`
+- `blacklist chan add <hash|#name>[,...]`
+- `blacklist chan rem <hash|#name>[,...]`
+- `blacklist chan clear`
+
+**Parameters:**
+- `hash`: 2 hex characters — the 1-byte channel hash from the start of the
+  group packet payload.
+- `#name`: the hashtag channel name. The packet is verified by decrypting it
+  with the secret derived from the name, so only that channel is dropped, not
+  every channel that shares the 1-byte hash.
+
+**Note:** Malformed group packets cannot be decrypted for verification; if
+their channel hash matches a `#name` entry, they are dropped as well.
+
+**Example:**
+```
+blacklist chan add #spam,3f
+blacklist chan list
+```
+
+---
+
+### Show filter drop counters
+
+**Usage:**
+- `blacklist stats`
+
+The reply is `path:<n> chan:<n> jail:<n>` — packets dropped by each filter
+since boot. The counters reset on reboot or `clear stats`.
+
+---
+
+### Advert jail
+
+Rate-limits flood adverts per sender. An advert that arrives sooner than the
+configured interval after the sender's previous advert is a strike; 6 strikes
+put the sender in jail, and while jailed its early adverts are not forwarded.
+Adverts that keep to the interval take strikes off, and the sender is released
+below 2 strikes. The same advert received again is not counted.
+
+**Usage:**
+- `get advert.jail`
+- `set advert.jail <hours>`
+- `jail [offset]`
+- `jail clear`
+
+**Parameters:**
+- `hours`: `0`–`168`. `0` disables the jail. Default: `0` (off).
+- `jail`: lists jailed senders as `<pubkey-prefix>:<strikes>/6`, most strikes
+  first. The prefix is the first 8 bytes of the sender's public key.
+- `jail clear`: releases every jailed sender.
+
+**Note:** Only flood adverts are checked. The jail is in RAM and is cleared on
+reboot; the interval setting is saved.
+
+**Example:**
+```
+set advert.jail 12
+get advert.jail
+jail
+```
 
 ---
 

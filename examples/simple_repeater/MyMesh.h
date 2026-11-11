@@ -37,6 +37,8 @@
 #include <helpers/RoutingPolicy.h>
 #include "RateLimiter.h"
 #include "TimeSync.h"
+#include "AdvertJail.h"
+#include "ChanFilter.h"
 
 #ifdef WITH_BRIDGE
 extern AbstractBridge* bridge;
@@ -70,12 +72,6 @@ struct RepeaterStats {
 struct BlacklistEntry {
   uint8_t len;                          // 0 = empty slot
   uint8_t prefix[MAX_PATH_PREFIX_LEN];
-};
-
-struct ChanNameFilter {
-  uint8_t hash[PATH_HASH_SIZE];
-  uint8_t secret[PUB_KEY_SIZE];
-  char    name[32];
 };
 
 struct NeighbourInfo {
@@ -123,6 +119,8 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   BlacklistEntry _chan_blacklist[MAX_BLACKLIST_ENTRIES];
   ChanNameFilter _chan_name_filters[MAX_CHAN_NAME_FILTERS];
   int _num_chan_name_filters;
+  AdvertJailEntry _advert_jail[MAX_ADVERT_JAIL_ENTRIES];
+  uint32_t _drops_path, _drops_chan, _drops_jail;   // packets dropped by each filter since boot
 #if MAX_NEIGHBOURS
   NeighbourInfo neighbours[MAX_NEIGHBOURS];
 #endif
@@ -168,13 +166,14 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   void saveBlacklist(const char* fname, const BlacklistEntry* list);
   bool addToBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len);
   bool removeFromBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len);
-  void formatBlacklist(const BlacklistEntry* list, char* reply, size_t reply_sz);
+  void formatBlacklist(const BlacklistEntry* list, char* reply, size_t reply_sz, int offset);
   void deriveChanNameFilter(ChanNameFilter& entry, const char* name);
   bool addChanNameFilter(const char* name);
   bool removeChanNameFilter(const char* name);
   void loadChanBlacklist(const char* fname);
   void saveChanBlacklist(const char* fname);
-  void formatChanBlacklist(char* reply, size_t reply_sz);
+  void formatChanBlacklist(char* reply, size_t reply_sz, int offset);
+  void formatAdvertJail(char* reply, size_t reply_sz, int offset) const;
 
 protected:
   float getAirtimeBudgetFactor() const override {
