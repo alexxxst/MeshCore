@@ -127,6 +127,26 @@ TEST(TimeSyncSanity, WindowIsFixedAtTheBottom) {
   EXPECT_GT(TIMESYNC_MAX_EPOCH, TIMESYNC_MIN_EPOCH);
 }
 
+TEST(TimeSyncFile, SavedEmptyListDeserializesEmpty) {
+  const size_t header = TimeSyncList::HEADER_SIZE;
+  TimeSyncList list;
+  uint8_t buf[TimeSyncList::MAX_SERIALIZED];
+  EXPECT_EQ(header, list.serialize(buf));
+
+  TimeSyncList loaded;
+  EXPECT_TRUE(loaded.deserialize(buf, header));
+  EXPECT_EQ(0, loaded.count());
+}
+
+TEST(TimeSyncFile, TruncatedBufferIsRejected) {
+  const size_t header = TimeSyncList::HEADER_SIZE;
+  const uint8_t buf[] = { TimeSyncList::FILE_MAGIC, TimeSyncList::FILE_VERSION, 1 };
+  TimeSyncList list;
+  EXPECT_FALSE(list.deserialize(buf, header - 1));
+  EXPECT_FALSE(list.deserialize(buf, header));
+  EXPECT_EQ(0, list.count());
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

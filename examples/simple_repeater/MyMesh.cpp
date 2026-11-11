@@ -1145,7 +1145,7 @@ void MyMesh::applyTimeSyncFromAdvert(const mesh::Identity &id, const mesh::Packe
   memcpy(timesync_last_key, id.pub_key, sizeof(timesync_last_key));
   MESH_DEBUG_PRINTLN("%s TimeSync: clock %lu -> %lu (%s, hops=%u, airtime=%lums)",
                      getLogDateTime(), (unsigned long)now, (unsigned long)target,
-                     strict_zero_hop ? "zero-hop" : "forward-only", hops,
+                     strict_zero_hop ? "zero-hop" : "forward-only", (unsigned)hops,
                      (unsigned long)airtime_ms);
 }
 
@@ -1171,7 +1171,7 @@ void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char
   while (*args == ' ') args++;
 
   if (*args == 0 || strcmp(args, "list") == 0) {
-    char *dp = reply;   // max ~130 chars, the CLI reply buffer holds 160
+    char *dp = reply;   // max ~145 chars, the CLI reply buffer holds 160
     if (timesync_list.count() == 0) {
       dp += sprintf(dp, "no trusted repeaters (time sync off)");
     } else {
@@ -1260,15 +1260,22 @@ void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char
       int removed = timesync_list.removeMatching(key, n);
       if (removed == 0) {
         strcpy(reply, "Err - not in the list");
-      } else if (saveTimeSync()) {
-        timesync_from_defaults = false;
-        sprintf(reply, "OK - removed %d", removed);
       } else {
-        strcpy(reply, "Err - removed, but could not be saved");
+        timesync_sources.clear();
+        if (saveTimeSync()) {
+          timesync_from_defaults = false;
+          sprintf(reply, "OK - removed %d", removed);
+        } else {
+          strcpy(reply, "Err - removed, but could not be saved");
+        }
       }
     }
   } else if (strcmp(args, "clear") == 0) {
     timesync_list.clear();
+    timesync_sources.clear();
+    timesync_has_synced = false;
+    timesync_last_millis = 0;
+    memset(timesync_last_key, 0, sizeof(timesync_last_key));
     if (saveTimeSync()) {
       timesync_from_defaults = false;
       strcpy(reply, "OK - cleared (time sync off)");
@@ -1278,9 +1285,19 @@ void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char
   } else if (strcmp(args, "defaults") == 0) {
     int invalid = 0;
     int n = timesync_list.setFromCsv(TIMESYNC_DEFAULT_KEYS, &invalid);
-    if (_fs->exists(TIMESYNC_FILE)) _fs->remove(TIMESYNC_FILE);
+    bool removed = !_fs->exists(TIMESYNC_FILE) || _fs->remove(TIMESYNC_FILE);
     timesync_from_defaults = n > 0;
-    if (n == 0) {
+    timesync_sources.clear();
+    timesync_has_synced = false;
+    timesync_last_millis = 0;
+    memset(timesync_last_key, 0, sizeof(timesync_last_key));
+    if (!removed) {
+      if (n == 0) {
+        strcpy(reply, "Err - no defaults, but could not remove /timesync");
+      } else {
+        sprintf(reply, "Err - %d default key(s) loaded, but could not remove /timesync", n);
+      }
+    } else if (n == 0) {
       strcpy(reply, "OK - no build-time defaults (time sync off)");
     } else {
       sprintf(reply, "OK - %d default key(s), file removed", n);
