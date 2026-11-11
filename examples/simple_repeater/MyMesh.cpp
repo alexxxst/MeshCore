@@ -1096,7 +1096,11 @@ void MyMesh::loadTimeSync() {
       uint8_t buf[TimeSyncList::MAX_SERIALIZED];
       int len = file.read(buf, sizeof(buf));
       file.close();
-      if (len > 0) loaded = timesync_list.deserialize(buf, len);
+      if (len == 0) {
+        loaded = true;   // a zero-byte file is an explicit empty list: the file wins, sync stays off
+      } else if (len > 0) {
+        loaded = timesync_list.deserialize(buf, len);
+      }
     }
   }
 
