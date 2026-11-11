@@ -466,6 +466,13 @@ void MyMesh::sendFloodReply(mesh::Packet* packet, unsigned long delay_millis, ui
 
 bool MyMesh::allowPacketForward(const mesh::Packet *packet) {
   if (_prefs.disable_fwd) return false;
+  // Flood packets are dropped on receive; a direct-routed group packet never reaches
+  // that hook, so stop it here when this node would relay it.
+  if (packet->isRouteDirect() && isChanBlacklisted(packet)) {
+    _drops_chan++;
+    MESH_DEBUG_PRINTLN("allowPacketForward: channel hash blacklisted, dropping direct!");
+    return false;
+  }
   if (packet->isRouteFlood()
       && mesh::isFloodHopLimitExceeded(packet, _prefs.flood_max, _prefs.flood_max_unscoped, _prefs.flood_max_advert)) {
     return false;
@@ -621,20 +628,7 @@ bool MyMesh::isPathBlacklisted(const mesh::Packet* packet) const {
 // Returns true if the channel hash at the start of a GRP_TXT/GRP_DATA payload matches
 // a channel-hash blacklist entry (hex prefix or #channel_name with decrypt verification).
 bool MyMesh::isChanBlacklisted(const mesh::Packet* packet) const {
-  uint8_t pt = packet->getPayloadType();
-  if (pt != PAYLOAD_TYPE_GRP_TXT && pt != PAYLOAD_TYPE_GRP_DATA) return false;
-  if (packet->payload_len < PATH_HASH_SIZE) return false;
-
-  // Check hex prefix entries
-  for (int b = 0; b < MAX_BLACKLIST_ENTRIES; b++) {
-    if (_chan_blacklist[b].len == 0) continue;
-    uint8_t avail   = (packet->payload_len < MAX_PATH_PREFIX_LEN) ? (uint8_t)packet->payload_len : MAX_PATH_PREFIX_LEN;
-    uint8_t cmp_len = (_chan_blacklist[b].len < avail) ? _chan_blacklist[b].len : avail;
-    if (memcmp(packet->payload, _chan_blacklist[b].prefix, cmp_len) == 0) return true;
-  }
-
-  // Check #channel_name entries with test decryption
-  return isChanNameFiltered(packet, _chan_name_filters, _num_chan_name_filters);
+  return isChanFiltered(packet, _chan_blacklist, _chan_name_filters, _num_chan_name_filters);
 }
 
 bool MyMesh::addToBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len) {

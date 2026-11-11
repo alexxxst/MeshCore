@@ -38,6 +38,7 @@
 #include "RateLimiter.h"
 #include "TimeSync.h"
 #include "AdvertJail.h"
+#include "Blacklist.h"
 #include "ChanFilter.h"
 
 #ifdef WITH_BRIDGE
@@ -62,17 +63,10 @@ struct RepeaterStats {
   uint32_t n_recv_errors;
 };
 
-#define MAX_PATH_PREFIX_LEN  4
-#define MAX_BLACKLIST_ENTRIES 30
 #define MAX_CHAN_NAME_FILTERS 15
 // Conservative cap for blacklist CLI replies: both serial (160) and over-radio
 // (161, minus optional 3-byte 'xx|' prefix) buffers are smaller than MAX_PACKET_PAYLOAD.
 #define MAX_BLACKLIST_REPLY_LEN 150
-
-struct BlacklistEntry {
-  uint8_t len;                          // 0 = empty slot
-  uint8_t prefix[MAX_PATH_PREFIX_LEN];
-};
 
 struct NeighbourInfo {
   mesh::Identity id;

@@ -19,12 +19,22 @@ static ChanNameFilter filter_for(uint8_t hash) {
   return f;
 }
 
-static Packet group_packet(uint8_t channel_hash, int ciphertext_len) {
+static Packet group_packet(uint8_t channel_hash, int ciphertext_len,
+                           uint8_t route = ROUTE_TYPE_FLOOD,
+                           uint8_t payload_type = PAYLOAD_TYPE_GRP_TXT) {
   Packet p;
-  p.header = ROUTE_TYPE_FLOOD | (PAYLOAD_TYPE_GRP_TXT << PH_TYPE_SHIFT);
+  p.header = route | (payload_type << PH_TYPE_SHIFT);
   p.payload[0] = channel_hash;
   p.payload_len = PATH_HASH_SIZE + CIPHER_MAC_SIZE + ciphertext_len;
   return p;
+}
+
+static BlacklistEntry hash_entry(uint8_t channel_hash) {
+  BlacklistEntry entry;
+  memset(&entry, 0, sizeof(entry));
+  entry.len = 1;
+  entry.prefix[0] = channel_hash;
+  return entry;
 }
 
 TEST(ChanNameFilter, AlignedPacketFromFilteredChannelIsDropped) {
@@ -87,6 +97,56 @@ TEST(ChanNameFilter, NoFiltersKeepsPacket) {
 
   EXPECT_FALSE(isChanNameFiltered(&pkt, nullptr, 0, fake_verify));
   EXPECT_EQ(0, verify_calls);
+}
+
+TEST(ChanBlacklist, HashEntryMatchesGroupText) {
+  BlacklistEntry hashes[MAX_BLACKLIST_ENTRIES] = {};
+  hashes[0] = hash_entry(0xA1);
+  Packet pkt = group_packet(0xA1, CIPHER_BLOCK_SIZE);
+
+  EXPECT_TRUE(isChanFiltered(&pkt, hashes, nullptr, 0, fake_verify));
+}
+
+TEST(ChanBlacklist, HashEntryMatchesGroupData) {
+  BlacklistEntry hashes[MAX_BLACKLIST_ENTRIES] = {};
+  hashes[0] = hash_entry(0xA1);
+  Packet pkt = group_packet(0xA1, CIPHER_BLOCK_SIZE, ROUTE_TYPE_FLOOD, PAYLOAD_TYPE_GRP_DATA);
+
+  EXPECT_TRUE(isChanFiltered(&pkt, hashes, nullptr, 0, fake_verify));
+}
+
+TEST(ChanBlacklist, HashEntryMatchesDirectRoutedGroupPacket) {
+  BlacklistEntry hashes[MAX_BLACKLIST_ENTRIES] = {};
+  hashes[0] = hash_entry(0xA1);
+  Packet pkt = group_packet(0xA1, CIPHER_BLOCK_SIZE, ROUTE_TYPE_DIRECT);
+
+  EXPECT_TRUE(isChanFiltered(&pkt, hashes, nullptr, 0, fake_verify));
+}
+
+TEST(ChanBlacklist, OtherPayloadTypesAreIgnored) {
+  BlacklistEntry hashes[MAX_BLACKLIST_ENTRIES] = {};
+  hashes[0] = hash_entry(0xA1);
+  Packet pkt = group_packet(0xA1, CIPHER_BLOCK_SIZE, ROUTE_TYPE_FLOOD, PAYLOAD_TYPE_ACK);
+
+  EXPECT_FALSE(isChanFiltered(&pkt, hashes, nullptr, 0, fake_verify));
+}
+
+TEST(ChanBlacklist, EmptyListsKeepPacket) {
+  BlacklistEntry hashes[MAX_BLACKLIST_ENTRIES] = {};
+  Packet pkt = group_packet(0xA1, CIPHER_BLOCK_SIZE);
+
+  EXPECT_FALSE(isChanFiltered(&pkt, hashes, nullptr, 0, fake_verify));
+}
+
+TEST(ChanBlacklist, NameFilterIsAppliedThroughTheListCheck) {
+  verify_calls = 0;
+  verify_result = 1;
+  BlacklistEntry hashes[MAX_BLACKLIST_ENTRIES] = {};
+  ChanNameFilter filter = filter_for(0xA1);
+  Packet pkt = group_packet(0xA1, CIPHER_BLOCK_SIZE);
+
+  EXPECT_TRUE(isChanFiltered(&pkt, hashes, &filter, 1, fake_verify));
+  EXPECT_EQ(1, verify_calls);
 }
 
 int main(int argc, char** argv) {

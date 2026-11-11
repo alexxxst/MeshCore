@@ -3,6 +3,7 @@
 #include <MeshCore.h>
 #include <Packet.h>
 #include <Utils.h>
+#include "Blacklist.h"
 
 // A channel-name blacklist entry: the derived channel secret and its 1-byte hash.
 struct ChanNameFilter {
@@ -38,4 +39,23 @@ inline bool isChanNameFiltered(const mesh::Packet* packet, const ChanNameFilter*
     if (len > 0) return true;   // successfully decrypted, confirmed channel match
   }
   return false;
+}
+
+// Returns true when a GRP_TXT/GRP_DATA packet belongs to a blacklisted channel,
+// either by its 1-byte hash or by a #channel_name entry verified by decryption.
+inline bool isChanFiltered(const mesh::Packet* packet, const BlacklistEntry* hashes,
+                           const ChanNameFilter* names, int num_names,
+                           ChanDecryptFn decrypt = mesh::Utils::MACThenDecrypt) {
+  uint8_t pt = packet->getPayloadType();
+  if (pt != PAYLOAD_TYPE_GRP_TXT && pt != PAYLOAD_TYPE_GRP_DATA) return false;
+  if (packet->payload_len < PATH_HASH_SIZE) return false;
+
+  for (int b = 0; b < MAX_BLACKLIST_ENTRIES; b++) {
+    if (hashes[b].len == 0) continue;
+    uint8_t avail = (packet->payload_len < MAX_PATH_PREFIX_LEN) ? (uint8_t)packet->payload_len : MAX_PATH_PREFIX_LEN;
+    uint8_t cmp_len = (hashes[b].len < avail) ? hashes[b].len : avail;
+    if (memcmp(packet->payload, hashes[b].prefix, cmp_len) == 0) return true;
+  }
+
+  return isChanNameFiltered(packet, names, num_names, decrypt);
 }

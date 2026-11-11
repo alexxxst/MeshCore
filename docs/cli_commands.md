@@ -149,10 +149,12 @@ file, so the defaults are used again in RAM and are never written to flash.
 
 ## Packet filters (Repeater Only)
 
-Filters apply to **flood** packets. The path and channel blacklists drop a
-packet when it is received: it is neither handled locally nor forwarded. The
-advert jail runs when a packet is about to be forwarded, so only adverts with
-a valid signature, and only the first copy of each, count against a sender.
+The path blacklist applies to **flood** packets. It drops a packet when it is
+received: it is neither handled locally nor forwarded. The channel blacklist
+covers flood packets and also stops a direct-routed group packet when this
+node would relay it. The advert jail runs when a flood advert is about to be
+forwarded, so only adverts with a valid signature, and only the first copy of
+each, count against a sender.
 
 List replies are paginated. When a page is full, the reply ends with
 `+N more (list M)`; run the same command with `offset` `M` to see the next
@@ -206,6 +208,10 @@ blacklist path list
 **Note:** Malformed group packets cannot be decrypted for verification; if
 their channel hash matches a `#name` entry, they are dropped as well.
 
+**Note:** A direct-routed `GRP_TXT`/`GRP_DATA` that this node would relay is
+dropped too. Zero-hop direct packets are never relayed, so they are not
+filtered by this list.
+
 **Example:**
 ```
 blacklist chan add #spam,3f
@@ -220,7 +226,9 @@ blacklist chan list
 - `blacklist stats`
 
 The reply is `path:<n> chan:<n> jail:<n>` — packets dropped by each filter
-since boot. The counters reset on reboot or `clear stats`.
+since boot. `chan` counts both flood packets dropped on receive and
+direct-routed group packets dropped while relaying. The counters reset on
+reboot or `clear stats`.
 
 ---
 
