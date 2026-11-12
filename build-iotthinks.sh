@@ -89,7 +89,7 @@ Xiao_nrf52_room_server
 # NRF52 - 23 boards
 sh build.sh build-firmware \
 GAT562_30S_Mesh_Kit_companion_radio_ble \
-Heltec_t096_companion_radio_ble_femon \
+Heltec_t096_companion_radio_ble \
 Heltec_t096_companion_radio_ble_femoff \
 Heltec_t1_companion_radio_ble \
 Heltec_t114_companion_radio_ble \
@@ -120,7 +120,7 @@ heltec_tracker_v2_companion_radio_ble \
 Heltec_v2_companion_radio_ble \
 Heltec_v3_companion_radio_ble \
 heltec_v4_companion_radio_ble_femoff \
-heltec_v4_companion_radio_ble_femon \
+heltec_v4_companion_radio_ble \
 heltec_v4_expansionkit_tft_companion_radio_ble \
 heltec_v4_r8_companion_radio_ble \
 Heltec_Wireless_Paper_companion_radio_ble \
@@ -147,7 +147,7 @@ heltec_tracker_v2_companion_radio_usb_femoff \
 heltec_tracker_v2_companion_radio_usb_femon \
 Heltec_v3_companion_radio_usb \
 heltec_v4_companion_radio_usb_femoff \
-heltec_v4_companion_radio_usb_femon \
+heltec_v4_companion_radio_usb \
 LilyGo_T-Echo-Lite_non_shell_companion_radio_usb \
 LilyGo_TBeam_1W_companion_radio_usb \
 LilyGo_TDeck_companion_radio_usb \
@@ -174,7 +174,7 @@ Xiao_nrf52_repeater_bridge_rs232
 ############# Sample builds #############
 # 24 boards
 sh build.sh build-firmware \
-Heltec_t096_companion_radio_ble_femon \
+Heltec_t096_companion_radio_ble \
 Heltec_t096_companion_radio_ble_femoff \
 Heltec_t096_repeater \
 Heltec_t114_companion_radio_ble \
@@ -203,11 +203,11 @@ Xiao_nrf52_repeater
 sh build.sh build-firmware \
 Heltec_t096_companion_radio_usb \
 heltec_v4_companion_radio_usb_femoff \
-heltec_v4_companion_radio_usb_femon
+heltec_v4_companion_radio_usb
 
 # Mini sample builds
 sh build.sh build-firmware \
-Heltec_t096_companion_radio_ble_femon \
+Heltec_t096_companion_radio_ble \
 Heltec_t096_companion_radio_usb \
 Heltec_t096_repeater \
 heltec_v4_companion_radio_ble_femoff \

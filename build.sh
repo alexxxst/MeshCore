@@ -14,7 +14,7 @@ Commands:
   build-firmware <target>: Build the firmware for the given build target.
   build-firmwares: Build all firmwares for all targets.
   build-matching-firmwares <build-match-spec>: Build all firmwares for build targets containing the string given for <build-match-spec>.
-  build-companion-firmwares: Build all companion firmwares for all build targets.
+  build-companion-firmwares: Build the selected companion firmwares (USB and BLE).
   build-repeater-firmwares: Build all repeater firmwares for all build targets.
   build-room-server-firmwares: Build all chat room server firmwares for all build targets.
 
@@ -25,7 +25,7 @@ $ sh build.sh build-firmware RAK_4631_repeater
 Build all firmwares for device targets containing the string "RAK_4631"
 $ sh build.sh build-matching-firmwares <build-match-spec>
 
-Build all companion firmwares
+Build the selected companion firmwares
 $ sh build.sh build-companion-firmwares
 
 Build all repeater firmwares
@@ -235,6 +235,7 @@ build_repeater_firmwares() {
   build_firmware "MTL_2_E22_sx1268_repeater"
   build_firmware "Tbeam_SX1276_repeater"
   build_firmware "Tbeam_SX1262_repeater"
+  build_firmware "LilyGo_TBeam_1W_repeater"
 
   build_firmware "heltec_v4_repeater_bridge_espnow"
   build_firmware "MTL_1_repeater_bridge_espnow"
@@ -252,21 +253,85 @@ build_repeater_firmwares() {
 
 build_companion_firmwares() {
 
-#  # build specific companion firmwares
-#  build_firmware "Heltec_v2_companion_radio_usb"
-#  build_firmware "Heltec_v2_companion_radio_ble"
-#  build_firmware "Heltec_v3_companion_radio_usb"
-#  build_firmware "Heltec_v3_companion_radio_ble"
-#  build_firmware "Xiao_S3_WIO_companion_radio_ble"
-#  build_firmware "LilyGo_T3S3_sx1262_companion_radio_usb"
-#  build_firmware "LilyGo_T3S3_sx1262_companion_radio_ble"
-#  build_firmware "RAK_4631_companion_radio_usb"
-#  build_firmware "RAK_4631_companion_radio_ble"
-#  build_firmware "t1000e_companion_radio_ble"
+  # Seeed Studio Wio Tracker L1 Pro
+  build_firmware "WioTrackerL1_companion_radio_usb"
+  build_firmware "WioTrackerL1_companion_radio_ble"
 
-  # build all companion firmwares
-  build_all_firmwares_by_suffix "_companion_radio_usb"
-  build_all_firmwares_by_suffix "_companion_radio_ble"
+  # Elecrow ThinkNode M1
+  build_firmware "ThinkNode_M1_companion_radio_usb"
+  build_firmware "ThinkNode_M1_companion_radio_ble"
+
+  # Elecrow ThinkNode M5
+  build_firmware "ThinkNode_M5_companion_radio_usb"
+  build_firmware "ThinkNode_M5_companion_radio_ble"
+
+  # GAT-IoT GAT562 Tracker
+  build_firmware "GAT562_Mesh_Tracker_Pro_companion_radio_usb"
+  build_firmware "GAT562_Mesh_Tracker_Pro_companion_radio_ble"
+
+  # GAT562 30s Kit
+  build_firmware "GAT562_30S_Mesh_Kit_companion_radio_usb"
+  build_firmware "GAT562_30S_Mesh_Kit_companion_radio_ble"
+
+  # Heltec MeshPocket
+  build_firmware "Mesh_pocket_companion_radio_usb"
+  build_firmware "Mesh_pocket_companion_radio_ble"
+
+  # LilyGo T-Echo
+  build_firmware "LilyGo_T-Echo_companion_radio_usb"
+  build_firmware "LilyGo_T-Echo_companion_radio_ble"
+
+  # LilyGo T-Echo Lite
+  build_firmware "LilyGo_T-Echo-Lite_companion_radio_usb"
+  build_firmware "LilyGo_T-Echo-Lite_companion_radio_ble"
+
+  # RAK WisMesh Tag
+  build_firmware "RAK_WisMesh_Tag_companion_radio_usb"
+  build_firmware "RAK_WisMesh_Tag_companion_radio_ble"
+
+  # Seeed Studio SenseCAP T1000-E
+  build_firmware "t1000e_companion_radio_usb"
+  build_firmware "t1000e_companion_radio_ble"
+
+  # Heltec Wireless Paper
+  build_firmware "Heltec_Wireless_Paper_companion_radio_usb"
+  build_firmware "Heltec_Wireless_Paper_companion_radio_ble"
+
+  # Heltec T114
+  build_firmware "Heltec_t114_companion_radio_usb"
+  build_firmware "Heltec_t114_companion_radio_ble"
+
+  # Heltec v3
+  build_firmware "Heltec_v3_companion_radio_usb"
+  build_firmware "Heltec_v3_companion_radio_ble"
+
+  # Heltec v4 (FEM on is the default build)
+  build_firmware "heltec_v4_companion_radio_usb"
+  build_firmware "heltec_v4_companion_radio_ble"
+
+  # Heltec Mesh Node T096 (FEM on is the default build)
+  build_firmware "Heltec_t096_companion_radio_usb"
+  build_firmware "Heltec_t096_companion_radio_ble"
+
+  # ProMicro nRF52 (fakeTec)
+  build_firmware "ProMicro_companion_radio_usb"
+  build_firmware "ProMicro_companion_radio_ble"
+
+  # RAK WisBlock 4631
+  build_firmware "RAK_4631_companion_radio_usb"
+  build_firmware "RAK_4631_companion_radio_ble"
+
+  # Seeed Studio Xiao nRF52 WIO
+  build_firmware "Xiao_nrf52_companion_radio_usb"
+  build_firmware "Xiao_nrf52_companion_radio_ble"
+
+  # LilyGo T-Beam 1W
+  build_firmware "LilyGo_TBeam_1W_companion_radio_usb"
+  build_firmware "LilyGo_TBeam_1W_companion_radio_ble"
+
+  # LilyGo T-Beam SX1262 / T-Beam 1.2 SX1276 (BLE only, no USB target)
+  build_firmware "Tbeam_SX1262_companion_radio_ble"
+  build_firmware "Tbeam_SX1276_companion_radio_ble"
 
 }
 
