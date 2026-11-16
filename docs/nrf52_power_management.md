@@ -208,14 +208,33 @@ DEBUG: PWRMGT: Boot voltage = 3450 mV (threshold = 3300 mV)
 DEBUG: PWRMGT: LPCOMP wake configured (AIN7, ref=3/8 VDD)
 ```
 
+## Deep Sleep and Time Keeping
+
+This tree also implements the power-saving side of nRF52 boards:
+
+- `enterDeepSleep(secs)` shuts down the display, radio, GPS and crypto
+  peripherals. With `secs > 0`, the node waits for that interval and then
+  reboots for a fresh recovery; `secs == 0` is the same as `powerOff()` and
+  enters `SYSTEMOFF`.
+- The clock is kept across resets in the `.persistent_magic` /
+  `.persistent_data` RAM sections (magic `0xAA55CC33`). If the backup is
+  missing or older than the 1 March 2026 seed, the firmware starts from the
+  seed.
+- `powersaving on` uses event-driven sleep (`sd_app_evt_wait()` when the
+  SoftDevice is enabled, `WFE` otherwise). The `secs` argument is ignored and
+  the node wakes on any interrupt.
+- `powerlog` reports the last reset reason, the last shutdown reason and the
+  boot voltage.
+
+See [Power Saving](./power_saving.md) for the CLI behaviour, GPS scheduling and
+the ESP32 equivalents.
+
 ## Phase 2 (Planned)
 
 - Runtime voltage monitoring
 - Voltage state machine (Normal -> Warning -> Critical -> Shutdown)
 - Configurable thresholds
 - Load shedding callbacks for power reduction
-- Deep sleep integration
-- Scheduled wake-up
 - Extended sleep with periodic monitoring
 
 ## References

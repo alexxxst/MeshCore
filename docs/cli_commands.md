@@ -5,7 +5,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 ## Navigation
 
 - [Operational](#operational)
-- [Time sync](#time-sync)
+- [Time sync](#time-sync-repeater-only)
 - [Neighbors](#neighbors-repeater-only)
 - [Packet filters](#packet-filters-repeater-only)
 - [Statistics](#statistics)
@@ -101,19 +101,26 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 ---
 
-## Time sync
+## Time sync (Repeater Only)
 
 - `timesync` / `timesync list` — trusted keys and last sync
-- `timesync add <prefix|pubkey>` — add a key (prefix must match exactly one neighbour)
-- `timesync remove <prefix>` — remove matching keys
+- `timesync add <prefix|pubkey>` — add a key (8–64 hex characters; a short prefix must match exactly one neighbour)
+- `timesync remove <prefix>` — remove matching keys (8–64 hex characters)
 - `timesync clear` — clear the list and save an empty file (sync stays off)
 - `timesync defaults` — load build-time defaults and remove `/timesync`
 
-When `/timesync` does not exist, the node falls back to the compiled-in default
-trust list in `examples/simple_repeater/TimeSyncDefaults.h`. An existing file
-wins over the defaults, even an empty one, and then time sync stays off until a
-key is added. `timesync defaults` restores the compiled-in list and removes the
-file, so the defaults are used again in RAM and are never written to flash.
+The trust list holds at most **8** keys. When `/timesync` does not exist, the
+node falls back to the compiled-in default trust list in
+`examples/simple_repeater/TimeSyncDefaults.h`. An existing valid file wins over
+the defaults, even a zero-byte one; a malformed non-empty file is ignored and the
+defaults are used instead. `timesync defaults` restores the compiled-in list and
+removes the file, so the defaults are used again in RAM and are never written to
+flash.
+
+`timesync list` prints short key prefixes plus the last sync; on the serial
+console it also prints the full 32-byte keys. See
+[Repeater Time Sync](./time_sync.md) for the file format, the timestamp window,
+replay protection and the exact rules that move the clock.
 
 ---
 
@@ -158,11 +165,12 @@ each, count against a sender.
 
 List replies are paginated. When a page is full, the reply ends with
 `+N more (list M)`; run the same command with `offset` `M` to see the next
-page.
+page. An empty list is reported as `-none-`.
 
 The lists are stored in `/path_bl` and `/chan_bl` (one entry per line) and
 survive reboots. Limits: 30 path entries, 30 channel hashes and 15 channel
-names.
+names. The advert jail remembers up to 32 senders; when it is full, it evicts
+the sender with the fewest strikes, then the one heard least recently.
 
 ---
 
@@ -203,7 +211,8 @@ blacklist path list
   group packet payload.
 - `#name`: the hashtag channel name. The packet is verified by decrypting it
   with the secret derived from the name, so only that channel is dropped, not
-  every channel that shares the 1-byte hash.
+  every channel that shares the 1-byte hash. Names are stored up to 31
+  characters; longer names are rejected.
 
 **Note:** Malformed group packets cannot be decrypted for verification; if
 their channel hash matches a `#name` entry, they are dropped as well.
@@ -293,6 +302,18 @@ jail
 
 ---
 
+### Show the last reset and shutdown reasons
+**Usage:** `powerlog`
+
+**Output:**
+- All boards: `Last reset reason: <reason>`.
+- nRF52 only: `Last shutdown reason: <reason>` and `Last boot voltage: <value> mV`.
+
+The values come from the same power-management state as `get pwrmgt.bootreason`
+and `get pwrmgt.bootmv`. See [nRF52 Power Management](./nrf52_power_management.md).
+
+---
+
 ## Logging
 
 ### Begin capture of rx log to node storage
@@ -322,6 +343,10 @@ jail
 ### Get the Version
 **Usage:** `ver`
 
+**Note:** Firmware built with `build.sh` reports
+`<FIRMWARE_VERSION>-<short-git-sha> (Build: <date>)`. See
+[Building Firmware](./building.md).
+
 ---
 
 ### Show the hardware name
@@ -346,7 +371,8 @@ jail
 
 **Set by build flag:** `LORA_FREQ`, `LORA_BW`, `LORA_SF`, `LORA_CR`
 
-**Default:** `869.618,62.5,8,5`
+**Default:** `868.856,62.5,7,7` (global `[arduino_base]` default; variants may
+override it, see [Building Firmware](./building.md))
 
 **Note:** Requires reboot to apply
 
@@ -391,7 +417,7 @@ jail
 **Parameters:**
 - `frequency`: Frequency in MHz
 
-**Default:** `869.618`
+**Default:** `868.856` (global `[arduino_base]` default; variants may override it)
 
 **Note:** Requires reboot to apply
 **Serial Only:** `set freq <frequency>`
@@ -412,39 +438,6 @@ jail
 
 ---
 
-#### View or change RX duty-cycle power saving
-**Usage:**
-- `get radio.rxps`
-- `set radio.rxps off`
-- `set radio.rxps on`
-- `set radio.rxps conservative`
-- `set radio.rxps balanced`
-- `set radio.rxps max`
-- `set radio.rxps max preamble <16|32>`
-- `set radio.rxps overdrive`
-- `set radio.rxps overdrive preamble <16|32>`
-- `set radio.rxps riskyWorkingMax`
-- `set radio.rxps riskyWorkingMax preamble <16|32>`
-- `set radio.rxps <1-10>`
-- `set radio.rxps level <1-10>`
-- `set radio.rxps level <1-10> preamble <16|32>`
-- `set radio.rxps <rx_us> <sleep_us>`
-
-**Parameters:**
-- `rx_us`, `sleep_us`: Receive and sleep durations in microseconds (`1000`-`30000000`).
-- `level`: `1`-`8`, expressed as **symbols of the sender's preamble the receiver catches** - how much of it lands inside an open RX window. Level `1` catches the most (15 symbols on the 16-symbol profile, 24 on the 32-symbol one) and costs the most power; level `8` catches 8 on both profiles and costs the least. Eight is the floor because that is what an LR11x0 needs to latch, so a level means the same geometry on either radio family. `9` (`overdrive`) and `10` (`riskyWorkingMax`) go below that floor and outside the datasheet timer condition; see below.
-- `preamble`: LoRa preamble length in symbols; `16` or `32`.
-- `state`: `on` or `off`.
-
-**Notes:**
-- `on` and `conservative` select level `3` (catches 13 symbols), `balanced` selects level `6` (catches 10), and `max` selects level `8` (catches 8); all three use a 16-symbol preamble.
-- Levels `1`-`8` satisfy the SX1261/2 duty-cycle timer condition; `max` is the top of that range. `overdrive` (level `9`) and `riskyWorkingMax` (level `10`) trade that guarantee for lower measured duty cycles; see the fuller entries below.
-- Like the other named profiles, `max`, `overdrive`, and `riskyWorkingMax` assume a 16-symbol sender preamble. At SF5-SF8 that is markedly less economical than the equivalent numeric level, which follows the SF onto the 32-symbol profile. Use the explicit `preamble 32` form to select the 32-symbol profile.
-- Level-based settings automatically recalculate their timings when the spreading factor or bandwidth changes. Custom `<rx_us> <sleep_us>` timings remain fixed.
-- The selected mode is applied immediately, persisted, and restored after reboot.
-
----
-
 #### View or change the LoRa FEM receive-path gain state on supported boards
 **Usage:**
 - `get radio.fem.rxgain`
@@ -456,6 +449,7 @@ jail
 **Notes:**
 - This controls the external LoRa FEM receive-path LNA where the board supports it.
 - This is separate from `radio.rxgain`, which controls the radio chip receive gain mode.
+- Factory-fresh default: `off`.
 
 ---
 
@@ -469,6 +463,7 @@ jail
 
 **Notes:**
 - This controls a software-selectable external LoRa FEM transmit gain where the board supports it.
+- Factory-fresh default: `off`.
 - On Station G3, remove the PA PL1 jumper to allow software control. `on` selects PA PL1 high/short and `off` selects PA PL1 low/open. The PA PL2 hardware jumper determines whether this switches between power levels 1/3 or 2/4.
 - Select an operating level and SX1262 transmit power that comply with local RF limits and the Station G3 power-supply requirements.
 - The setting is saved immediately, but on Station G3 the level is applied to the hardware at the start of the next transmit, so that the PA supply rail is never re-targeted while the PA is being driven. `get` reports the configured state, which may lead the hardware until the node next transmits.
@@ -499,7 +494,10 @@ jail
 - `rx_us`: receive-window duration in microseconds, `1000-30000000`.
 - `sleep_us`: radio sleep duration in microseconds, `1000-30000000`.
 
-**Repeater default:** `off`
+**Factory-fresh default:** `balanced` (level 6, catches 10 symbols, preamble 16)
+on repeater and sensor firmware. Companion firmware always applies `balanced`
+and does not expose this text command. An existing `/prefs.json` keeps its saved
+value, including `off`; radios without RXPS support stay in continuous RX.
 
 **Profiles:**
 - `on` and `conservative`: level 3, catches 13 symbols, with a 16-symbol preamble.
@@ -601,6 +599,9 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
 - There is intentionally no RXPS watchdog, watchdog command, or periodic recovery. Recovery is limited to the immediate continuous-RX fallback after an arm error. After 3 consecutive arm failures the node stops retrying on every RX restart and stays in continuous RX until the RXPS configuration is set again or `clear stats` grants a fresh set of attempts.
 - On boards with a host-controlled RXEN pin, the RF switch is held in receive mode for the whole duty cycle (otherwise the node would be deaf). An external LNA on that pin therefore stays biased during the sleep windows, so the real power saving is smaller than the `rx`/`sleep` ratio implies.
 
+See [Power Saving](./power_saving.md) for MCU sleep, GPS scheduling and deep sleep,
+which are separate from `radio.rxps`.
+
 ---
 
 
@@ -691,7 +692,7 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
 **Parameters:**
 - `password`: Guest password
 
-**Set by build flag:** `ROOM_PASSWORD` (Room Server only)
+**Set by build flag:** `ROOM_PASSWORD` (Room Server only), `REPEATER_GUEST_PASSWORD` (Repeater only)
 
 **Default:** `<blank>`
 
@@ -742,7 +743,7 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
 
 ---
 
-#### View or change this node's power saving flag (Repeater Only)
+#### View or change this node's MCU power saving flag (Repeater, Room Server, Sensor)
 **Usage:**
 - `powersaving`
 - `powersaving on`
@@ -752,13 +753,23 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
 - `on`: enable power saving
 - `off`: disable power saving
 
-**Default:** `off`
+**Default:** `on` for fresh installs of repeater, room server, sensor and
+companion firmware; an existing `/prefs.json` keeps its saved value. Companion
+firmware uses the same preference internally but does not expose this text
+command.
 
-**Note:** When enabled, device enters sleep mode between radio transmissions
+**Notes:**
+- nRF52: event-driven sleep; `powersaving on` replies `on - Immediate effect`.
+- ESP32 without a bridge: light sleep after the first 120 seconds; `powersaving on` replies `on - After 2 minutes`.
+- ESP32 bridge builds: `powersaving on` replies `Bridge not supported`.
+- Unsupported boards reply `Board not supported`.
+
+See [Power Saving](./power_saving.md) for the full behaviour, including GPS
+scheduling, deep sleep and clock retention.
 
 ---
 
-#### View or set reboot interval (Repeater and room server)
+#### View or set reboot interval (Repeater and Sensor)
 **Usage:**
 - `get reboot.interval`
 - `set reboot.interval <hours>`
@@ -767,6 +778,9 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
 - `hours`: 0-255. 0 is disabled
 
 **Default:** `0` (disabled)
+
+**Note:** The setting is accepted by the common CLI, but only repeater and
+sensor firmware act on it.
 
 ---
 
@@ -796,11 +810,13 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
   - `2`: 3 Byte hash size (16,777,216 unique ids)[21 max flood]
   - `3`: DO NOT USE (Reserved) 
 
-**Default:** `0`
+**Default:** `1` (2-byte) on a factory-fresh repeater; `0` (1-byte) on room
+server, sensor and companion firmware. An existing `/prefs.json` keeps its
+saved value.
 
 **Note:** the 'path.hash.mode' sets the low-level ID/hash encoding size used when the repeater adverts. This setting has no impact on what packet ID/hash size this repeater forwards, all sizes should be forwarded on firmware >= 1.14. This feature was added in firmware 1.14
 
-**Temporary Note:** adverts with ID/hash sizes of 2 or 3 bytes may have limited flood propagation in your network while this feature is new as v1.13.0 firmware and older will drop packets with multibyte path ID/hashes as only 1-byte hashes are supported. Consider your install base of firmware >=1.14 has reached a criticality for effective network flooding before implementing higher ID/hash sizes. 
+**Temporary Note:** adverts with ID/hash sizes of 2 or 3 bytes may have limited flood propagation in your network while this feature is new as v1.13.0 firmware and older will drop packets with multibyte path ID/hashes as only 1-byte hashes are supported. A factory-fresh repeater now advertises with 2-byte hashes; if your mesh still contains pre-1.14 repeaters, consider setting `path.hash.mode 0` until they are upgraded. Consider your install base of firmware >=1.14 has reached a criticality for effective network flooding before implementing higher ID/hash sizes.
 
 ---
 
@@ -816,7 +832,8 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
   - `moderate`: packets are dropped if repeater's ID/hash appears 2 or more times (1-byte), 1 or more (2-byte), 1 or more (3-byte)
   - `strict`: packets are dropped if repeater's ID/hash appears 1 or more times (1-byte), 1 or more (2-byte), 1 or more (3-byte)
   
-**Default:** `off`
+**Default:** `strict` on a factory-fresh repeater; `off` on room server, sensor
+and companion firmware. An existing `/prefs.json` keeps its saved value.
 
 **Note:** When it is enabled, repeaters will now reject flood packets which look like they are in a loop. This has been happening recently in some meshes when there is just a single 'bad' repeater firmware out there (probably some forked or custom firmware). If the payload is messed with, then forwarded, the same packet ends up causing a packet storm, repeated up to the max 64 hops. This feature was added in firmware 1.14
 
@@ -832,7 +849,7 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
 **Parameters:**
 - `value`: Transmit delay factor (0-2)
 
-**Default:** `0.5`
+**Default:** `2.0` (Repeater) - `0.5` (Room Server, Sensor, Companion)
 
 **Note:** When multiple nearby repeaters all hear the same flood packet, each waits a random amount of time before retransmitting to avoid simultaneous collisions. This factor scales the size of that random window. Higher values reduce collision risk at the cost of added latency. `0` disables the window entirely.
 
@@ -846,7 +863,7 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
 **Parameters:**
 - `value`: Direct transmit delay factor (0-2)
 
-**Default:** `0.3` (Repeater) - `0.2` (Room Server, Sensor)
+**Default:** `1.0` (Repeater) - `0.2` (Room Server, Sensor, Companion)
 
 **Note:** Same collision-avoidance random window as `txdelay`, but applied to direct (non-flood, routed) traffic. The default is lower because direct packets are addressed to a specific next hop, so far fewer nodes compete to retransmit them.
 
@@ -860,7 +877,7 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
 **Parameters:**
 - `value`: Receive delay base (0-20)
 
-**Default:** `0.0`
+**Default:** `3.0` (Repeater) - `0.0` (Room Server, Sensor, Companion)
 
 **Note:** When enabled, repeaters that received a flood packet with a weak signal are held in a delay queue before processing, while those that received it with a strong signal process it immediately. This gives strong-signal paths forwarding priority. By the time weak-signal nodes process their copy, the packet may have already propagated and will be suppressed as a duplicate, reducing redundant retransmissions.
 
@@ -927,7 +944,8 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
 **Parameters:**
 - `on|off`: Enable or disable hardware CAD
 
-**Default:** `off`
+**Default:** `on` on a factory-fresh repeater; `off` on room server, sensor and
+companion firmware. An existing `/prefs.json` keeps its saved value.
 
 ---
 
@@ -969,9 +987,9 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
 - `set flood.advert.interval <hours>`
 
 **Parameters:**
-- `hours`: Interval in hours (3-168)
+- `hours`: `0` disables the flood advert; otherwise `3`-`168` hours
 
-**Default:** `47` (Repeater, Room Server) - `0`, disabled (Sensor)
+**Default:** `24` (Repeater) - `47` (Room Server) - `0`, disabled (Sensor)
 
 ---
 
@@ -981,14 +999,16 @@ err=<RadioLib error>,fail=<count>[,erx=<us>,eslp=<us>]
 - `set advert.interval <minutes>`
 
 **Parameters:**
-- `minutes`: Interval in minutes rounded down to the nearest multiple of 2 (61 becomes 60) (60-240)
+- `minutes`: `0` disables the zero-hop advert; otherwise `60`-`240` minutes, rounded down to the nearest multiple of 2 (61 becomes 60)
 
-**Default:** `2` on a factory-fresh node, then `0` (disabled) once configured.
+**Default:** `240` minutes on a factory-fresh repeater; `2` minutes on a
+factory-fresh room server or sensor, then `0` (disabled) once configured.
 
-**Note:** A new install ships with a 2 minute zero-hop advert interval. Saving
-any setting resets an interval below the 60 minute minimum to `0`, on the
-assumption that the node has now been deliberately configured. To keep zero-hop
-adverts running, set an explicit value in the 60-240 range.
+**Note:** A new repeater ships with a 240 minute zero-hop advert interval. A new
+room server or sensor starts at 2 minutes. Saving any setting resets an interval
+below the 60 minute minimum to `0`, on the assumption that the node has now been
+deliberately configured. To keep zero-hop adverts running, set an explicit value
+in the 60-240 range.
 
 ---
 
@@ -1155,6 +1175,7 @@ adverts running, set an explicit value in the 60-240 range.
 - `hopN_hex`: Hop hash, `2`, `4`, or `6` hex characters. All hops must use the same width.
 
 **Notes:**
+- Repeater firmware only.
 - These commands require remote client context (they target the caller's ACL entry).
 - The path hash size is inferred from the hop hash width.
 - `outpath` overrides the primary direct route used for replies to the caller.
@@ -1347,15 +1368,36 @@ region save
 
 **Default:** `off`
 
-**Note:** Output format:
-- `off` when the GPS hardware is disabled
-- `on, {active|deactivated}, {fix|no fix}, {sat count} sats` when the GPS hardware is enabled
+**Note:** `gps on` replies `ok`, or `on (powersaving)` when power saving is
+enabled. `gps off` replies `ok`. `gps sync` schedules a sync and replies
+`scheduled`; if the GPS is in a power-saving sleep window, it wakes it.
+
+**Output format:**
+- No provider: `Can't find GPS`.
+- Normal mode, GPS disabled: `off, powered` or `off, unpowered`.
+- Normal mode, GPS enabled: `on, powered|unpowered, fix|no fix, <sat count> sats`.
+- Power saving mode, GPS enabled: adds `sleep in <h>h <m>m` while awake or
+  `wake in <h>h <m>m` while asleep, plus `last sync: <HH:MM - D/M/YYYY UTC>` or
+  `last sync: none`. For example:
+  `on, powered (powersaving, sleep in 0h 7m), fix, 8 sats, last sync: 12:34 - 16/11/2026 UTC`
+
+See [Power Saving](./power_saving.md) for the GPS on/off schedule.
 
 ---
 
 #### Sync this node's clock with GPS time
 **Usage:** 
 - `gps sync`
+
+---
+
+#### Show GPS provider diagnostics
+**Usage:** `gps diag`
+
+**Output:** `req:<0|1>` followed by provider-specific counters. The NMEA
+provider reports `en`, `ub` (UART bytes), `ua` (UART age), `ok`/`bad` (NMEA
+checksum results), `na` (NMEA age), `sat`, `fix`, `fa` (fix age), `bc` and
+`sc` (begin/stop calls).
 
 ---
 
@@ -1401,6 +1443,23 @@ region save
 - `key`: Sensor setting name
 - `value`: The value to set the sensor to
 
+**GPS read interval:** `sensor set gps_interval <seconds>` changes how often
+GPS data is read while the GPS is awake. Values above 0 are used as-is; `0`
+falls back to 1 second. The default is 1 second. This does not change the GPS
+on/off schedule used by power saving; see [Power Saving](./power_saving.md).
+
+---
+
+#### Show sensor bus and GPS pin diagnostics
+**Usage:** `sensor`
+
+**Output:**
+- The I2C bus and SDA/SCL pins, or `I2C GPIOs not defined`.
+- `GPS Serial: RX=<pin>, TX=<pin>. Configured` when GPS support is compiled in
+  and the pins are defined, otherwise `Not configured` or `GPS Serial not defined`.
+
+This is a diagnostic command. Use `sensor list` to list sensor values.
+
 ---
 
 ### Bridge (When bridge support is compiled in)
@@ -1418,7 +1477,8 @@ region save
 **Parameters:**
 - `state`: `on`|`off`
 
-**Default:** `off`
+**Default:** `on` in repeater bridge builds; `off` otherwise. An existing
+`/prefs.json` keeps its saved value.
 
 ---
 
@@ -1468,6 +1528,8 @@ region save
 **Parameters:**
 - `channel`: Channel number (1-14)
 
+**Default:** `1`
+
 ---
 
 #### Set the ESP-Now secret
@@ -1478,7 +1540,9 @@ region save
 **Parameters:**
 - `secret`: ESP-NOW bridge secret, up to 15 characters
 
-**Default:** Varies by board
+**Default:** `LVSITANOS` in repeater firmware; empty in room server, sensor and
+companion firmware until configured. Change it before deploying a bridge: the
+same secret must be configured on both ends, and the default is public.
 
 ---
 

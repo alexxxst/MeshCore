@@ -206,11 +206,11 @@ MeshCore allows you to manually broadcast your name, position and public encrypt
 * Zero hop means your advert is broadcast to anyone that can hear it, and that's it.
 * Flooded means it's broadcast and then repeated by all the repeaters that hear it.
 
-MeshCore clients only advertise themselves when the user initiates it. A repeater sends a flood advert once every 12 hours by default. This interval can be configured using the following command:
+MeshCore clients only advertise themselves when the user initiates it. A repeater sends a flood advert once every 24 hours by default. Room servers use 47 hours, and sensors disable the flood advert by default. This interval can be configured using the following command:
 
 `set flood.advert.interval {hours}`
 
-The separate `set advert.interval {minutes}` command controls the local zero-hop advert timer.
+The separate `set advert.interval {minutes}` command controls the local zero-hop advert timer. A factory-fresh repeater starts at 240 minutes; room servers and sensors start at 2 minutes and drop to 0 once they are configured.
 
 ### 2.5. Q: Is there a hop limit?
 
@@ -315,22 +315,28 @@ This CLI command `path.hash.mode` *only* controls the path hash size used in a r
 Usage: `set path.hash.mode {0|1|2}`:
 
 ```
-┌────────────────┬───────────────────────┐
-│ path.hash.mode │ Advert path hash size │
-├────────────────┼───────────────────────┤
-│ 0              │ 1 byte (default)      │
-├────────────────┼───────────────────────┤
-│ 1              │ 2 bytes               │
-├────────────────┼───────────────────────┤
-│ 2              │ 3 bytes               │
-└────────────────┴───────────────────────┘  
+┌────────────────┬───────────────────────────────────────────────────────────┐
+│ path.hash.mode │ Advert path hash size                                      │
+├────────────────┼───────────────────────────────────────────────────────────┤
+│ 0              │ 1 byte (upstream default; kept on existing installs)       │
+├────────────────┼───────────────────────────────────────────────────────────┤
+│ 1              │ 2 bytes (factory-fresh repeater default in this firmware) │
+├────────────────┼───────────────────────────────────────────────────────────┤
+│ 2              │ 3 bytes                                                    │
+└────────────────┴───────────────────────────────────────────────────────────┘
 ```
+
+A factory-fresh repeater built from this tree uses mode 1, so it advertises
+with 2-byte path hashes. Existing `/prefs.json` files keep their saved value.
+Repeaters older than firmware 1.14 will silently drop those adverts; if your
+mesh still has such repeaters and you need them to hear the advert, set
+`path.hash.mode 0` until they are upgraded.
 
 It is safe to set your 1.14+ repeaters to mode 1 or 2.
 
 ### 3.9.5. Q: **Why use 2- or 3-byte path hash for adverts?**
 
-A longer path hash helps tools like the LetsMesh.net Analyzer and MeshMapper disambiguate repeaters more reliably. With only 1 byte, the chance of different repeaters having the same first byte in their public key is high, making it harder to tell them apart in mesh network analysis. Since this only affects adverts, there's no downside. 2- and 3-byte adverts don't travel as far as 1-byte adverts, but it is not important for MeshCore nodes to hear a repeater's advert that is 21 or 32 hops away.
+A longer path hash helps tools like the LetsMesh.net Analyzer and MeshMapper disambiguate repeaters more reliably. With only 1 byte, the chance of different repeaters having the same first byte in their public key is high, making it harder to tell them apart in mesh network analysis. On a mesh where every repeater runs 1.14+, this only affects adverts, so there is no downside. 2- and 3-byte adverts don't travel as far as 1-byte adverts, but it is not important for MeshCore nodes to hear a repeater's advert that is 21 or 32 hops away.
 
 ### 3.9.6. Q: **When can we move away from 1-byte path hash for channel and direct messages?**
 
@@ -544,7 +550,7 @@ git clone https://github.com/meshcore-dev/meshcore.git
 cd meshcore
 ```
 open platformio.ini and in `[arduino_base]` edit `LORA_FREQ` (it defaults to
-`869.618`) to the frequency for your region, save, then run:
+`868.856`) to the frequency for your region, save, then run:
 ```
 pio run -e RAK_4631_repeater
 ```

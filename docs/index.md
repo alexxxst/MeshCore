@@ -6,6 +6,10 @@ Below are a few quick start guides.
 
 - [Frequently Asked Questions](./faq.md)
 - [CLI Commands](./cli_commands.md)
+- [Bot Mr.Pong](./simple_bot_ping.md)
+- [Repeater Time Sync](./time_sync.md)
+- [Power Saving](./power_saving.md)
+- [Building Firmware](./building.md)
 - [Companion Protocol](./companion_protocol.md)
 - [Packet Format](./packet_format.md)
 - [QR Codes](./qr_codes.md)
