@@ -5,14 +5,7 @@
 #include <RTClib.h>
 #include <target.h>
 
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-  #include <InternalFileSystem.h>
-#elif defined(RP2040_PLATFORM)
-  #include <LittleFS.h>
-#elif defined(ESP32)
-  #include <SPIFFS.h>
-  using File = fs::File;
-#endif
+#include "FsCompat.h"
 
 #ifdef WITH_RS232_BRIDGE
 #include "helpers/bridges/RS232Bridge.h"
@@ -36,10 +29,8 @@
 #include <helpers/RegionMap.h>
 #include <helpers/RoutingPolicy.h>
 #include "RateLimiter.h"
-#include "TimeSync.h"
-#include "AdvertJail.h"
-#include "Blacklist.h"
-#include "ChanFilter.h"
+#include "TimeSyncModule.h"
+#include "FilterModule.h"
 
 #ifdef WITH_BRIDGE
 extern AbstractBridge* bridge;
@@ -62,11 +53,6 @@ struct RepeaterStats {
   uint32_t total_rx_air_time_secs;
   uint32_t n_recv_errors;
 };
-
-#define MAX_CHAN_NAME_FILTERS 15
-// Conservative cap for blacklist CLI replies: both serial (160) and over-radio
-// (161, minus optional 3-byte 'xx|' prefix) buffers are smaller than MAX_PACKET_PAYLOAD.
-#define MAX_BLACKLIST_REPLY_LEN 150
 
 struct NeighbourInfo {
   mesh::Identity id;
@@ -96,6 +82,8 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   NodePrefs _prefs;
   ClientACL  acl;
   CommonCLI _cli;
+  FilterModule filters;
+  TimeSyncModule time_sync;
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
   uint8_t reply_path[MAX_PATH_SIZE];
   uint8_t reply_path_len;
@@ -109,12 +97,6 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   unsigned long pending_discover_until;
   bool region_load_active;
   unsigned long dirty_contacts_expiry;
-  BlacklistEntry _path_blacklist[MAX_BLACKLIST_ENTRIES];
-  BlacklistEntry _chan_blacklist[MAX_BLACKLIST_ENTRIES];
-  ChanNameFilter _chan_name_filters[MAX_CHAN_NAME_FILTERS];
-  int _num_chan_name_filters;
-  AdvertJailEntry _advert_jail[MAX_ADVERT_JAIL_ENTRIES];
-  uint32_t _drops_path, _drops_chan, _drops_jail;   // packets dropped by each filter since boot
 #if MAX_NEIGHBOURS
   NeighbourInfo neighbours[MAX_NEIGHBOURS];
 #endif
@@ -125,12 +107,6 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   uint8_t pending_sf;
   uint8_t pending_cr;
   int  matching_peer_indexes[MAX_CLIENTS];
-  TimeSyncList timesync_list;          // trusted repeaters whose adverts may move our clock forward
-  TimeSyncSources timesync_sources;    // RAM-only replay high-water marks
-  bool timesync_has_synced;
-  bool timesync_from_defaults;         // active list came from build-time defaults
-  unsigned long timesync_last_millis;  // when the clock was last moved (valid if timesync_has_synced)
-  uint8_t timesync_last_key[4];        // which trusted repeater did it (pubkey prefix)
 #if defined(WITH_RS232_BRIDGE)
   RS232Bridge bridge;
 #elif defined(WITH_ESPNOW_BRIDGE)
@@ -145,29 +121,10 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   int handleRequest(ClientInfo* sender, uint32_t sender_timestamp, uint8_t* payload, size_t payload_len);
   mesh::Packet* createSelfAdvert();
 
-  void loadTimeSync();
-  bool saveTimeSync();
-  void applyTimeSyncFromAdvert(const mesh::Identity& id, const mesh::Packet* packet,
-                               uint32_t advert_timestamp);
-  void handleTimeSyncCmd(uint32_t sender_timestamp, const char* args, char* reply);
+  int resolveNeighbourKey(const uint8_t* prefix, size_t len, uint8_t* full_key) const;
 
   File openAppend(const char* fname);
   bool isLooped(const mesh::Packet* packet, const uint8_t max_counters[]);
-
-  bool isPathBlacklisted(const mesh::Packet* packet) const;
-  bool isChanBlacklisted(const mesh::Packet* packet) const;
-  void loadBlacklist(const char* fname, BlacklistEntry* list);
-  void saveBlacklist(const char* fname, const BlacklistEntry* list);
-  bool addToBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len);
-  bool removeFromBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len);
-  void formatBlacklist(const BlacklistEntry* list, char* reply, size_t reply_sz, int offset);
-  void deriveChanNameFilter(ChanNameFilter& entry, const char* name);
-  bool addChanNameFilter(const char* name);
-  bool removeChanNameFilter(const char* name);
-  void loadChanBlacklist(const char* fname);
-  void saveChanBlacklist(const char* fname);
-  void formatChanBlacklist(char* reply, size_t reply_sz, int offset);
-  void formatAdvertJail(char* reply, size_t reply_sz, int offset) const;
 
 protected:
   float getAirtimeBudgetFactor() const override {

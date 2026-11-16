@@ -262,7 +262,9 @@ below 2 strikes. The same advert received again is not counted.
 - `jail clear`: releases every jailed sender.
 
 **Note:** Only flood adverts are checked. The jail is in RAM and is cleared on
-reboot; the interval setting is saved.
+reboot; the interval setting is saved in `/filter_prefs`. An `adv_jail` value
+left in an older `/prefs.json` is ignored, so the jail starts off after an
+upgrade until it is set again.
 
 **Example:**
 ```

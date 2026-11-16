@@ -1,6 +1,4 @@
 #include "MyMesh.h"
-#include "TimeSyncDefaults.h"
-#include "ListReplyPager.h"
 #include <algorithm>
 #include "helpers/radiolib/RXPowerSaving.h"
 
@@ -468,11 +466,7 @@ bool MyMesh::allowPacketForward(const mesh::Packet *packet) {
   if (_prefs.disable_fwd) return false;
   // Flood packets are dropped on receive; a direct-routed group packet never reaches
   // that hook, so stop it here when this node would relay it.
-  if (packet->isRouteDirect() && isChanBlacklisted(packet)) {
-    _drops_chan++;
-    MESH_DEBUG_PRINTLN("allowPacketForward: channel hash blacklisted, dropping direct!");
-    return false;
-  }
+  if (packet->isRouteDirect() && filters.vetoForwardDirect(packet)) return false;
   if (packet->isRouteFlood()
       && mesh::isFloodHopLimitExceeded(packet, _prefs.flood_max, _prefs.flood_max_unscoped, _prefs.flood_max_advert)) {
     return false;
@@ -497,18 +491,7 @@ bool MyMesh::allowPacketForward(const mesh::Packet *packet) {
   }
   // Advert jail: checked when forwarding rather than on receive, so only adverts
   // with a valid signature and only the first copy of each count as strikes.
-  if (_prefs.advert_jail_hours > 0 && packet->isRouteFlood()
-      && packet->getPayloadType() == PAYLOAD_TYPE_ADVERT && packet->payload_len >= PUB_KEY_SIZE + 4) {
-    uint32_t advert_time;
-    memcpy(&advert_time, &packet->payload[PUB_KEY_SIZE], 4);
-    if (mesh::checkAdvertJail(_advert_jail, MAX_ADVERT_JAIL_ENTRIES, packet->payload, advert_time,
-                              (uint32_t)millis(),
-                              (uint32_t)_prefs.advert_jail_hours * 3600UL * 1000UL)) {
-      _drops_jail++;
-      MESH_DEBUG_PRINTLN("allowPacketForward: advert jail, dropping!");
-      return false;
-    }
-  }
+  if (packet->isRouteFlood() && filters.vetoForwardAdvert(packet, (uint32_t)millis())) return false;
   return true;
 }
 
@@ -607,292 +590,6 @@ uint32_t MyMesh::getDirectRetransmitDelay(const mesh::Packet *packet) {
   return getRNG()->nextInt(0, 5*t + 1);
 }
 
-/* ----------------------- Blacklist helpers -------------------------------- */
-
-// Returns true if any path entry in the packet matches a path-prefix blacklist entry.
-// Comparison uses min(entry.len, hash_size) bytes, so shorter entries match any hash size.
-bool MyMesh::isPathBlacklisted(const mesh::Packet* packet) const {
-  uint8_t hash_size  = packet->getPathHashSize();
-  uint8_t hash_count = packet->getPathHashCount();
-  const uint8_t* ptr = packet->path;
-  for (uint8_t h = 0; h < hash_count; h++, ptr += hash_size) {
-    for (int b = 0; b < MAX_BLACKLIST_ENTRIES; b++) {
-      if (_path_blacklist[b].len == 0) continue;
-      uint8_t cmp_len = (_path_blacklist[b].len < hash_size) ? _path_blacklist[b].len : hash_size;
-      if (memcmp(ptr, _path_blacklist[b].prefix, cmp_len) == 0) return true;
-    }
-  }
-  return false;
-}
-
-// Returns true if the channel hash at the start of a GRP_TXT/GRP_DATA payload matches
-// a channel-hash blacklist entry (hex prefix or #channel_name with decrypt verification).
-bool MyMesh::isChanBlacklisted(const mesh::Packet* packet) const {
-  return isChanFiltered(packet, _chan_blacklist, _chan_name_filters, _num_chan_name_filters);
-}
-
-bool MyMesh::addToBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len) {
-  if (len == 0 || len > MAX_PATH_PREFIX_LEN) return false;
-  // if already present, consider success
-  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
-    if (list[i].len == len && memcmp(list[i].prefix, prefix, len) == 0) return true;
-  }
-  // find an empty slot
-  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
-    if (list[i].len == 0) {
-      list[i].len = len;
-      memcpy(list[i].prefix, prefix, len);
-      return true;
-    }
-  }
-  return false; // list is full
-}
-
-bool MyMesh::removeFromBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len) {
-  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
-    if (list[i].len == len && memcmp(list[i].prefix, prefix, len) == 0) {
-      list[i].len = 0; // mark slot as empty
-      return true;
-    }
-  }
-  return false;
-}
-
-static bool isHexStr(const char* s, int len) {
-  for (int i = 0; i < len; i++) {
-    if (!mesh::Utils::isHexChar(s[i])) return false;
-  }
-  return true;
-}
-
-void MyMesh::formatBlacklist(const BlacklistEntry* list, char* reply, size_t reply_sz, int offset) {
-  ListReplyPager pager(reply, reply_sz, offset);
-  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
-    if (list[i].len == 0) continue;
-    char hex[MAX_PATH_PREFIX_LEN * 2 + 1];
-    mesh::Utils::toHex(hex, list[i].prefix, list[i].len);
-    pager.add(hex, list[i].len * 2);
-  }
-  pager.finish();
-}
-
-void MyMesh::loadBlacklist(const char* fname, BlacklistEntry* list) {
-  memset(list, 0, sizeof(BlacklistEntry) * MAX_BLACKLIST_ENTRIES);
-#if defined(RP2040_PLATFORM)
-  File f = _fs->open(fname, "r");
-#else
-  File f = _fs->open(fname);
-#endif
-  if (!f) return;
-  int idx = 0;
-  char line[MAX_PATH_PREFIX_LEN * 2 + 4];
-  int line_len = 0;
-  while (f.available() && idx < MAX_BLACKLIST_ENTRIES) {
-    int c = f.read();
-    if (c < 0) break;
-    if (c == '\n' || c == '\r') {
-      if (line_len >= 2 && (line_len % 2 == 0) && line[0] != '#') {
-        line[line_len] = 0;
-        uint8_t prefix[MAX_PATH_PREFIX_LEN];
-        int byte_len = line_len / 2;
-        if (byte_len <= MAX_PATH_PREFIX_LEN && isHexStr(line, line_len)
-            && mesh::Utils::fromHex(prefix, byte_len, line)) {
-          list[idx].len = (uint8_t)byte_len;
-          memcpy(list[idx].prefix, prefix, byte_len);
-          idx++;
-        }
-      }
-      line_len = 0;
-    } else if (line_len < (int)(sizeof(line) - 1)) {
-      line[line_len++] = (char)c;
-    }
-  }
-  // handle last line with no trailing newline
-  if (line_len >= 2 && (line_len % 2 == 0) && line[0] != '#' && idx < MAX_BLACKLIST_ENTRIES) {
-    line[line_len] = 0;
-    uint8_t prefix[MAX_PATH_PREFIX_LEN];
-    int byte_len = line_len / 2;
-    if (byte_len <= MAX_PATH_PREFIX_LEN && isHexStr(line, line_len)
-        && mesh::Utils::fromHex(prefix, byte_len, line)) {
-      list[idx].len = (uint8_t)byte_len;
-      memcpy(list[idx].prefix, prefix, byte_len);
-    }
-  }
-  f.close();
-}
-
-void MyMesh::saveBlacklist(const char* fname, const BlacklistEntry* list) {
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-  _fs->remove(fname);
-  File f = _fs->open(fname, FILE_O_WRITE);
-#elif defined(RP2040_PLATFORM)
-  File f = _fs->open(fname, "w");
-#else
-  File f = _fs->open(fname, "w", true);
-#endif
-  if (!f) return;
-  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
-    if (list[i].len == 0) continue;
-    char hex[MAX_PATH_PREFIX_LEN * 2 + 2];
-    mesh::Utils::toHex(hex, list[i].prefix, list[i].len);
-    f.println(hex);
-  }
-  f.close();
-}
-
-/* ------------------- Channel name filter helpers -------------------------- */
-
-void MyMesh::deriveChanNameFilter(ChanNameFilter& entry, const char* name) {
-  // Derive channel secret: first 16 bytes of sha256(name), zero-padded to PUB_KEY_SIZE
-  // to match GroupChannel.secret layout (MACThenDecrypt reads PUB_KEY_SIZE bytes)
-  uint8_t full_hash[32];
-  mesh::Utils::sha256(full_hash, 32, (const uint8_t*)name, strlen(name));
-  memset(entry.secret, 0, sizeof(entry.secret));
-  memcpy(entry.secret, full_hash, CIPHER_KEY_SIZE);
-  // Derive channel hash from the secret (using 16-byte key length, matching addChannel)
-  mesh::Utils::sha256(entry.hash, sizeof(entry.hash), entry.secret, CIPHER_KEY_SIZE);
-  StrHelper::strncpy(entry.name, name, sizeof(entry.name));
-}
-
-bool MyMesh::addChanNameFilter(const char* name) {
-  // must be a "#name" that fits the fixed-size name buffer
-  if (name == NULL || name[0] != '#' || strlen(name) < 2
-      || strlen(name) >= sizeof(_chan_name_filters[0].name)) return false;
-  // Check for duplicate
-  for (int i = 0; i < _num_chan_name_filters; i++) {
-    if (strcmp(_chan_name_filters[i].name, name) == 0) return true; // already exists
-  }
-  if (_num_chan_name_filters >= MAX_CHAN_NAME_FILTERS) return false; // full
-  deriveChanNameFilter(_chan_name_filters[_num_chan_name_filters], name);
-  _num_chan_name_filters++;
-  return true;
-}
-
-bool MyMesh::removeChanNameFilter(const char* name) {
-  for (int i = 0; i < _num_chan_name_filters; i++) {
-    if (strcmp(_chan_name_filters[i].name, name) == 0) {
-      // shift remaining entries down
-      for (int j = i; j < _num_chan_name_filters - 1; j++) {
-        _chan_name_filters[j] = _chan_name_filters[j + 1];
-      }
-      _num_chan_name_filters--;
-      memset(&_chan_name_filters[_num_chan_name_filters], 0, sizeof(ChanNameFilter));
-      return true;
-    }
-  }
-  return false;
-}
-
-void MyMesh::loadChanBlacklist(const char* fname) {
-  // Load both hex prefix entries and #channel_name entries from the same file
-  loadBlacklist(fname, _chan_blacklist);  // loads hex entries into _chan_blacklist
-
-  // A channel blacklist hex entry is a single-byte channel hash; drop any legacy/oversized entries
-  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
-    if (_chan_blacklist[i].len != PATH_HASH_SIZE) _chan_blacklist[i].len = 0;
-  }
-
-  // Now re-read the file to pick up #channel_name lines
-  _num_chan_name_filters = 0;
-  memset(_chan_name_filters, 0, sizeof(_chan_name_filters));
-#if defined(RP2040_PLATFORM)
-  File f = _fs->open(fname, "r");
-#else
-  File f = _fs->open(fname);
-#endif
-  if (!f) return;
-  char line[40];
-  int line_len = 0;
-  while (f.available() && _num_chan_name_filters < MAX_CHAN_NAME_FILTERS) {
-    int c = f.read();
-    if (c < 0) break;
-    if (c == '\n' || c == '\r') {
-      if (line_len > 1 && line[0] == '#' && line_len < (int)sizeof(_chan_name_filters[0].name)) {
-        line[line_len] = 0;
-        deriveChanNameFilter(_chan_name_filters[_num_chan_name_filters], line);
-        _num_chan_name_filters++;
-      }
-      line_len = 0;
-    } else if (line_len < (int)(sizeof(line) - 1)) {
-      line[line_len++] = (char)c;
-    }
-  }
-  // handle last line with no trailing newline
-  if (line_len > 1 && line[0] == '#' && line_len < (int)sizeof(_chan_name_filters[0].name)
-      && _num_chan_name_filters < MAX_CHAN_NAME_FILTERS) {
-    line[line_len] = 0;
-    deriveChanNameFilter(_chan_name_filters[_num_chan_name_filters], line);
-    _num_chan_name_filters++;
-  }
-  f.close();
-}
-
-void MyMesh::saveChanBlacklist(const char* fname) {
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-  _fs->remove(fname);
-  File f = _fs->open(fname, FILE_O_WRITE);
-#elif defined(RP2040_PLATFORM)
-  File f = _fs->open(fname, "w");
-#else
-  File f = _fs->open(fname, "w", true);
-#endif
-  if (!f) return;
-  // Write hex prefix entries
-  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
-    if (_chan_blacklist[i].len == 0) continue;
-    char hex[MAX_PATH_PREFIX_LEN * 2 + 2];
-    mesh::Utils::toHex(hex, _chan_blacklist[i].prefix, _chan_blacklist[i].len);
-    f.println(hex);
-  }
-  // Write #channel_name entries
-  for (int i = 0; i < _num_chan_name_filters; i++) {
-    f.println(_chan_name_filters[i].name);
-  }
-  f.close();
-}
-
-void MyMesh::formatChanBlacklist(char* reply, size_t reply_sz, int offset) {
-  ListReplyPager pager(reply, reply_sz, offset);
-  // Hex prefix entries first, then the #channel_name entries
-  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
-    if (_chan_blacklist[i].len == 0) continue;
-    char hex[MAX_PATH_PREFIX_LEN * 2 + 1];
-    mesh::Utils::toHex(hex, _chan_blacklist[i].prefix, _chan_blacklist[i].len);
-    pager.add(hex, _chan_blacklist[i].len * 2);
-  }
-  for (int i = 0; i < _num_chan_name_filters; i++) {
-    pager.add(_chan_name_filters[i].name, strlen(_chan_name_filters[i].name));
-  }
-  pager.finish();
-}
-
-// Jailed advert senders, most strikes first: '<key prefix>:<strikes>/<threshold>'.
-void MyMesh::formatAdvertJail(char* reply, size_t reply_sz, int offset) const {
-  ListReplyPager pager(reply, reply_sz, offset);
-  const AdvertJailEntry* jailed[MAX_ADVERT_JAIL_ENTRIES];
-  int count = 0;
-  for (int i = 0; i < MAX_ADVERT_JAIL_ENTRIES; i++) {
-    if (_advert_jail[i].last_seen != 0 && _advert_jail[i].jailed) {
-      jailed[count++] = &_advert_jail[i];
-    }
-  }
-  uint32_t now = millis();
-  std::sort(jailed, jailed + count, [now](const AdvertJailEntry* a, const AdvertJailEntry* b) {
-    if (a->strikes != b->strikes) return a->strikes > b->strikes;
-    return now - a->last_seen < now - b->last_seen;   // most recently heard first
-  });
-
-  for (int i = 0; i < count; i++) {
-    char line[24];
-    char hex[ADVERT_JAIL_KEY_SIZE * 2 + 1];
-    mesh::Utils::toHex(hex, jailed[i]->key, sizeof(jailed[i]->key));
-    int len = snprintf(line, sizeof(line), "%s:%u/%u", hex, (unsigned)jailed[i]->strikes,
-                       (unsigned)ADVERT_JAIL_THRESHOLD);
-    pager.add(line, len);
-  }
-  pager.finish();
-}
-
 mesh::DispatcherAction MyMesh::onRecvPacket(mesh::Packet* pkt) {
   if (pkt->getRouteType() == ROUTE_TYPE_TRANSPORT_FLOOD) {
     recv_pkt_region = region_map.findMatch(pkt, REGION_DENY_FLOOD);
@@ -911,22 +608,7 @@ mesh::DispatcherAction MyMesh::onRecvPacket(mesh::Packet* pkt) {
 // Flood pre-dispatch veto invoked by the base Mesh (see Mesh.h): returning true
 // means the packet is NOT processed at all (no local delivery, no retransmission).
 bool MyMesh::filterRecvFloodPacket(mesh::Packet* pkt) {
-  // Drop packets whose path contains a blacklisted node prefix
-  if (isPathBlacklisted(pkt)) {
-    _drops_path++;
-    MESH_DEBUG_PRINTLN("filterRecvFloodPacket: path prefix blacklisted, dropping!");
-    return true;
-  }
-
-  // Drop group-channel packets whose channel hash is blacklisted
-  if (isChanBlacklisted(pkt)) {
-    _drops_chan++;
-    MESH_DEBUG_PRINTLN("filterRecvFloodPacket: channel hash blacklisted, dropping!");
-    return true;
-  }
-
-  // do normal processing
-  return false;
+  return filters.vetoRecvFlood(pkt);
 }
 
 void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const mesh::Identity &sender,
@@ -1008,256 +690,15 @@ static bool isShare(const mesh::Packet *packet) {
   return false;
 }
 
-/* ------------------ clock sync from trusted repeaters' adverts ------------------ */
-
-static File openTimeSyncWrite(FILESYSTEM *fs) {
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-  fs->remove(TIMESYNC_FILE);
-  return fs->open(TIMESYNC_FILE, FILE_O_WRITE);
-#elif defined(RP2040_PLATFORM)
-  return fs->open(TIMESYNC_FILE, "w");
-#else
-  return fs->open(TIMESYNC_FILE, "w", true);
-#endif
-}
-
-void MyMesh::loadTimeSync() {
-  timesync_list.clear();
-  timesync_from_defaults = false;
-
-  bool loaded = false;
-  if (_fs->exists(TIMESYNC_FILE)) {
-#if defined(RP2040_PLATFORM)
-    File file = _fs->open(TIMESYNC_FILE, "r");
-#else
-    File file = _fs->open(TIMESYNC_FILE);
-#endif
-    if (file) {
-      uint8_t buf[TimeSyncList::MAX_SERIALIZED];
-      int len = file.read(buf, sizeof(buf));
-      file.close();
-      if (len == 0) {
-        loaded = true;   // a zero-byte file is an explicit empty list: the file wins, sync stays off
-      } else if (len > 0) {
-        loaded = timesync_list.deserialize(buf, len);
-      }
-    }
-  }
-
-  if (!loaded) {
-    for (size_t i = 0; i < TIMESYNC_DEFAULT_KEY_COUNT; i++) {
-      timesync_list.add(TIMESYNC_DEFAULT_KEYS[i]);
-    }
-    timesync_from_defaults = timesync_list.count() > 0;
-    MESH_DEBUG_PRINTLN("TimeSync: loaded %d build-time default key(s)", timesync_list.count());
-  }
-}
-
-bool MyMesh::saveTimeSync() {
-  File file = openTimeSyncWrite(_fs);
-  if (!file) return false;
-
-  uint8_t buf[TimeSyncList::MAX_SERIALIZED];
-  size_t len = timesync_list.serialize(buf);
-  bool success = (file.write(buf, len) == len);
-  file.close();
-  return success;
-}
-
-// Called for every valid (signature already verified) advert. The clock is only moved forward, and only
-// by an advert whose signer is in the trusted list, so a forged advert can never change it.
-void MyMesh::applyTimeSyncFromAdvert(const mesh::Identity &id, const mesh::Packet *packet,
-                                     uint32_t advert_timestamp) {
-  if (timesync_list.count() == 0 || !timesync_list.contains(id.pub_key)) return;
-  if (advert_timestamp < TIMESYNC_MIN_EPOCH || advert_timestamp >= TIMESYNC_MAX_EPOCH) return;
-  if (!timesync_sources.accept(id.pub_key, advert_timestamp, _ms->getMillis())) return;
-
-  uint8_t hops = packet->getPathHashCount();
-  uint32_t airtime_ms = _radio->getEstAirtimeFor(packet->getRawLength());
-  uint32_t target = TimeSyncList::computeTarget(advert_timestamp, airtime_ms, hops);
-
-  bool strict_zero_hop = hops == 0 && !packet->isRouteFlood() && !isShare(packet);
-  uint32_t now = getRTCClock()->getCurrentTime();
-  if (!TimeSyncList::shouldAdjust(now, target, strict_zero_hop)) return;
-
-  getRTCClock()->setCurrentTime(target);
-  timesync_has_synced = true;
-  timesync_last_millis = _ms->getMillis();
-  memcpy(timesync_last_key, id.pub_key, sizeof(timesync_last_key));
-  MESH_DEBUG_PRINTLN("%s TimeSync: clock %lu -> %lu (%s, hops=%u, airtime=%lums)",
-                     getLogDateTime(), (unsigned long)now, (unsigned long)target,
-                     strict_zero_hop ? "zero-hop" : "forward-only", (unsigned)hops,
-                     (unsigned long)airtime_ms);
-}
-
-// Parses ONE hex token (4..32 bytes) from 's' into out[]. Returns the number of bytes, or -1 if malformed.
-static int parseTimeSyncKeyArg(const char *s, uint8_t *out) {
-  while (*s == ' ') s++;
-  char tok[TIMESYNC_KEY_SIZE * 2 + 1];
-  int n = 0;
-  while (*s && *s != ' ') {
-    if (n >= (int)sizeof(tok) - 1 || !mesh::Utils::isHexChar(*s)) return -1;
-    tok[n++] = *s++;
-  }
-  tok[n] = 0;
-  while (*s == ' ') s++;
-  if (*s != 0 || n == 0 || (n & 1)) return -1;   // trailing junk, empty, or odd number of digits
-  if (!mesh::Utils::fromHex(out, n / 2, tok)) return -1;
-  return n / 2;
-}
-
-#define TIMESYNC_MIN_PREFIX_BYTES   4    // same length the 'neighbors' command shows
-
-void MyMesh::handleTimeSyncCmd(uint32_t sender_timestamp, const char *args, char *reply) {
-  while (*args == ' ') args++;
-
-  if (*args == 0 || strcmp(args, "list") == 0) {
-    char *dp = reply;   // max ~145 chars, the CLI reply buffer holds 160
-    if (timesync_list.count() == 0) {
-      dp += sprintf(dp, "no trusted repeaters (time sync off)");
-    } else {
-      dp += sprintf(dp, "trusted %d/%d:", timesync_list.count(), TIMESYNC_MAX_TRUSTED);
-      for (int i = 0; i < timesync_list.count(); i++) {
-        char hex[10];
-        mesh::Utils::toHex(hex, timesync_list.get(i), 4);
-        dp += sprintf(dp, " %s", hex);
-      }
-      if (timesync_from_defaults) dp += sprintf(dp, " | build defaults");
-    }
-    if (timesync_has_synced) {
-      char hex[10];
-      mesh::Utils::toHex(hex, timesync_last_key, 4);
-      unsigned long secs_ago = (_ms->getMillis() - timesync_last_millis) / 1000;
-      sprintf(dp, " | last sync %lus ago from %s", secs_ago, hex);
-    }
-    if (sender_timestamp == 0) {   // serial only: also dump the full keys (handy to copy to other repeaters)
-      for (int i = 0; i < timesync_list.count(); i++) {
-        mesh::Utils::printHex(Serial, timesync_list.get(i), TIMESYNC_KEY_SIZE);
-        Serial.printf("\n");
-      }
-    }
-  } else if (memcmp(args, "add ", 4) == 0) {
-    uint8_t key[TIMESYNC_KEY_SIZE];
-    int n = parseTimeSyncKeyArg(&args[4], key);
-    if (n < 0) {
-      strcpy(reply, "Err - bad pubkey (hex)");
-    } else if (n < TIMESYNC_MIN_PREFIX_BYTES) {
-      strcpy(reply, "Err - need at least 8 hex chars");
-    } else {
-      uint8_t full[TIMESYNC_KEY_SIZE];
-      memset(full, 0, sizeof(full));
-      bool resolved = false;
-      if (n == TIMESYNC_KEY_SIZE) {
-        memcpy(full, key, TIMESYNC_KEY_SIZE);
-        resolved = true;
-      } else {
-        // a prefix is only accepted if exactly one neighbour (as shown by 'neighbors') matches it
-        int matches = 0;
-#if MAX_NEIGHBOURS
-        for (int i = 0; i < MAX_NEIGHBOURS; i++) {
-          if (neighbours[i].heard_timestamp > 0 && memcmp(neighbours[i].id.pub_key, key, n) == 0) {
-            if (matches == 0) memcpy(full, neighbours[i].id.pub_key, TIMESYNC_KEY_SIZE);
-            matches++;
-          }
-        }
-#endif
-        if (matches == 1) {
-          resolved = true;
-        } else if (matches > 1) {
-          strcpy(reply, "Err - prefix is ambiguous");
-        } else {
-          strcpy(reply, "Err - no such neighbour, give the full 64-char pubkey");
-        }
-      }
-
-      if (resolved) {
-        if (memcmp(full, self_id.pub_key, TIMESYNC_KEY_SIZE) == 0) {
-          strcpy(reply, "Err - that is this node");
-        } else {
-          TimeSyncList::AddResult res = timesync_list.add(full);
-          if (res == TimeSyncList::FULL) {
-            sprintf(reply, "Err - list full (%d)", TIMESYNC_MAX_TRUSTED);
-          } else if (res == TimeSyncList::ALREADY) {
-            strcpy(reply, "OK - already trusted");
-          } else if (saveTimeSync()) {
-            timesync_from_defaults = false;
-            char hex[10];
-            mesh::Utils::toHex(hex, full, 4);
-            sprintf(reply, "OK - trusted %s (%d/%d)", hex, timesync_list.count(), TIMESYNC_MAX_TRUSTED);
-          } else {
-            strcpy(reply, "Err - added, but could not be saved");
-          }
-        }
-      }
-    }
-  } else if (memcmp(args, "remove ", 7) == 0) {
-    uint8_t key[TIMESYNC_KEY_SIZE];
-    int n = parseTimeSyncKeyArg(&args[7], key);
-    if (n < 0) {
-      strcpy(reply, "Err - bad pubkey (hex)");
-    } else if (n < TIMESYNC_MIN_PREFIX_BYTES) {
-      strcpy(reply, "Err - need at least 8 hex chars");
-    } else {
-      int removed = timesync_list.removeMatching(key, n);
-      if (removed == 0) {
-        strcpy(reply, "Err - not in the list");
-      } else {
-        timesync_sources.clear();
-        if (saveTimeSync()) {
-          timesync_from_defaults = false;
-          sprintf(reply, "OK - removed %d", removed);
-        } else {
-          strcpy(reply, "Err - removed, but could not be saved");
-        }
-      }
-    }
-  } else if (strcmp(args, "clear") == 0) {
-    timesync_list.clear();
-    timesync_sources.clear();
-    timesync_has_synced = false;
-    timesync_last_millis = 0;
-    memset(timesync_last_key, 0, sizeof(timesync_last_key));
-    if (saveTimeSync()) {
-      timesync_from_defaults = false;
-      strcpy(reply, "OK - cleared (time sync off)");
-    } else {
-      strcpy(reply, "Err - cleared, but could not be saved");
-    }
-  } else if (strcmp(args, "defaults") == 0) {
-    timesync_list.clear();
-    for (size_t i = 0; i < TIMESYNC_DEFAULT_KEY_COUNT; i++) {
-      timesync_list.add(TIMESYNC_DEFAULT_KEYS[i]);
-    }
-    int n = timesync_list.count();
-    bool removed = !_fs->exists(TIMESYNC_FILE) || _fs->remove(TIMESYNC_FILE);
-    timesync_from_defaults = n > 0;
-    timesync_sources.clear();
-    timesync_has_synced = false;
-    timesync_last_millis = 0;
-    memset(timesync_last_key, 0, sizeof(timesync_last_key));
-    if (!removed) {
-      if (n == 0) {
-        strcpy(reply, "Err - no defaults, but could not remove /timesync");
-      } else {
-        sprintf(reply, "Err - %d default key(s) loaded, but could not remove /timesync", n);
-      }
-    } else if (n == 0) {
-      strcpy(reply, "OK - no build-time defaults (time sync off)");
-    } else {
-      sprintf(reply, "OK - %d default key(s), file removed", n);
-    }
-  } else {
-    strcpy(reply, "Err - timesync [list|add <pubkey>|remove <pubkey>|defaults|clear]");
-  }
-}
-
 void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32_t timestamp,
                           const uint8_t *app_data, size_t app_data_len) {
   mesh::Mesh::onAdvertRecv(packet, id, timestamp, app_data, app_data_len); // chain to super impl
 
   // advert from a trusted repeater? then it may move our clock forward (done before the neighbour update,
   // so the neighbour's 'heard' time is already on the corrected clock)
-  applyTimeSyncFromAdvert(id, packet, timestamp);
+  time_sync.onAdvert(id, packet, timestamp, isShare(packet),
+                     _radio->getEstAirtimeFor(packet->getRawLength()),
+                     _ms->getMillis(), *getRTCClock());
 
   // if this a zero hop advert (and not via 'Share'), add it to neighbours
   if (packet->getPathHashCount() == 0 && !isShare(packet)) {
@@ -1500,18 +941,6 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   region_load_active = false;
   recv_pkt_region = NULL;
 
-  memset(_path_blacklist, 0, sizeof(_path_blacklist));
-  memset(_chan_blacklist,  0, sizeof(_chan_blacklist));
-  memset(_chan_name_filters, 0, sizeof(_chan_name_filters));
-  _num_chan_name_filters = 0;
-  memset(_advert_jail, 0, sizeof(_advert_jail));
-  _drops_path = _drops_chan = _drops_jail = 0;
-
-  timesync_has_synced = false;
-  timesync_from_defaults = false;
-  timesync_last_millis = 0;
-  memset(timesync_last_key, 0, sizeof(timesync_last_key));
-
 #if MAX_NEIGHBOURS
   memset(neighbours, 0, sizeof(neighbours));
 #endif
@@ -1588,11 +1017,19 @@ void MyMesh::begin(FILESYSTEM *fs) {
   // load persisted prefs
   _cli.loadPrefs(_fs);
   acl.load(_fs, self_id);
-  loadTimeSync();
+
+  TimeSyncModuleContext ts_ctx;
+  ts_ctx.self_pub_key = self_id.pub_key;
+  ts_ctx.resolver_ctx = this;
+  ts_ctx.resolve_neighbour = [](void* ctx, const uint8_t* prefix, size_t len,
+                                uint8_t* full_key) -> int {
+    return static_cast<MyMesh*>(ctx)->resolveNeighbourKey(prefix, len, full_key);
+  };
+  time_sync.begin(_fs, ts_ctx);
+
   // TODO: key_store.begin();
   region_map.load(_fs);
-  loadBlacklist(PATH_BLACKLIST_FILE, _path_blacklist);
-  loadChanBlacklist(CHAN_BLACKLIST_FILE);
+  filters.begin(_fs);
 
   // establish default-scope
   {
@@ -1836,7 +1273,24 @@ void MyMesh::clearStats() {
   radio_driver.resetStats();
   resetStats();
   ((SimpleMeshTables *)getTables())->resetStats();
-  _drops_path = _drops_chan = _drops_jail = 0;
+  filters.clearStats();
+}
+
+int MyMesh::resolveNeighbourKey(const uint8_t* prefix, size_t len, uint8_t* full_key) const {
+  int matches = 0;
+#if MAX_NEIGHBOURS
+  for (int i = 0; i < MAX_NEIGHBOURS; i++) {
+    if (neighbours[i].heard_timestamp > 0 && memcmp(neighbours[i].id.pub_key, prefix, len) == 0) {
+      if (matches == 0) memcpy(full_key, neighbours[i].id.pub_key, TIMESYNC_KEY_SIZE);
+      matches++;
+    }
+  }
+#else
+  (void)prefix;
+  (void)len;
+  (void)full_key;
+#endif
+  return matches;
 }
 
 // Outpath PR
@@ -2056,117 +1510,11 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, ClientInfo* sender, char *
       sendNodeDiscoverReq();
       strcpy(reply, "OK - Discover sent");
     }
-  } else if (memcmp(command, "blacklist ", 10) == 0) {
-    // Commands:
-    //   blacklist path list [offset]
-    //   blacklist path add <hex>[,<hex>,...]   (each hex = 2-8 even chars → 1-4 bytes)
-    //   blacklist path rem <hex>[,<hex>,...]
-    //   blacklist path clear
-    //   blacklist chan list [offset]
-    //   blacklist chan add <hash|#name>[,<hash|#name>,...]   (hash = 2 hex chars → 1 byte)
-    //   blacklist chan rem <hash|#name>[,<hash|#name>,...]
-    //   blacklist chan clear
-    //   blacklist stats
-    const char* parts[5];
-    int n = mesh::Utils::parseTextParts(command, parts, 5, ' ');
-
-    BlacklistEntry* list = NULL;
-    const char* list_file = NULL;
-    bool is_chan = false;
-    if (n >= 2 && strcmp(parts[1], "path") == 0) {
-      list = _path_blacklist;  list_file = PATH_BLACKLIST_FILE;
-    } else if (n >= 2 && strcmp(parts[1], "chan") == 0) {
-      list = _chan_blacklist;  list_file = CHAN_BLACKLIST_FILE;
-      is_chan = true;
-    }
-
-    if (n == 2 && strcmp(parts[1], "stats") == 0) {
-      snprintf(reply, MAX_BLACKLIST_REPLY_LEN, "path:%lu chan:%lu jail:%lu",
-               (unsigned long)_drops_path, (unsigned long)_drops_chan, (unsigned long)_drops_jail);
-    } else if (list && n >= 3 && strcmp(parts[2], "list") == 0) {
-      int offset = (n >= 4) ? atoi(parts[3]) : 0;
-      if (is_chan) {
-        formatChanBlacklist(reply, MAX_BLACKLIST_REPLY_LEN, offset);
-      } else {
-        formatBlacklist(list, reply, MAX_BLACKLIST_REPLY_LEN, offset);
-      }
-    } else if (list && n >= 3 && strcmp(parts[2], "clear") == 0) {
-      memset(list, 0, sizeof(BlacklistEntry) * MAX_BLACKLIST_ENTRIES);
-      if (is_chan) {
-        _num_chan_name_filters = 0;
-        memset(_chan_name_filters, 0, sizeof(_chan_name_filters));
-        saveChanBlacklist(list_file);
-      } else {
-        saveBlacklist(list_file, list);
-      }
-      strcpy(reply, "OK");
-    } else if (list && n >= 4 && (strcmp(parts[2], "add") == 0 || strcmp(parts[2], "rem") == 0)) {
-      bool is_add = (parts[2][0] == 'a');
-      // parts[3] may be a comma-separated list of hex entries or #channel_name entries.
-      // It points into the mutable command buffer, so parse it in place (no copy/truncation).
-      const char* tok_parts[MAX_BLACKLIST_ENTRIES];
-      int tok_n = mesh::Utils::parseTextParts((char*)parts[3], tok_parts, MAX_BLACKLIST_ENTRIES, ',');
-
-      bool any_ok = false, any_err = false;
-      for (int t = 0; t < tok_n; t++) {
-        if (is_chan && tok_parts[t][0] == '#') {
-          // #channel_name entry
-          bool ok = is_add ? addChanNameFilter(tok_parts[t])
-                           : removeChanNameFilter(tok_parts[t]);
-          if (ok) any_ok = true; else any_err = true;
-        } else {
-          int hex_str_len = strlen(tok_parts[t]);
-          // channel hex entries are a single-byte hash; path entries are 1..MAX_PATH_PREFIX_LEN bytes
-          int max_hex_len = is_chan ? (PATH_HASH_SIZE * 2) : (MAX_PATH_PREFIX_LEN * 2);
-          if (hex_str_len < 2 || hex_str_len > max_hex_len || (hex_str_len % 2) != 0
-              || !isHexStr(tok_parts[t], hex_str_len)) {
-            any_err = true; continue;
-          }
-          uint8_t prefix[MAX_PATH_PREFIX_LEN];
-          int byte_len = hex_str_len / 2;
-          if (!mesh::Utils::fromHex(prefix, byte_len, tok_parts[t])) {
-            any_err = true; continue;
-          }
-          bool ok = is_add ? addToBlacklist(list, prefix, (uint8_t)byte_len)
-                           : removeFromBlacklist(list, prefix, (uint8_t)byte_len);
-          if (ok) any_ok = true; else any_err = true;
-        }
-      }
-
-      // auto-save on any successful mutation
-      if (any_ok) {
-        if (is_chan) {
-          saveChanBlacklist(list_file);
-        } else {
-          saveBlacklist(list_file, list);
-        }
-      }
-
-      if (any_ok && !any_err)       strcpy(reply, "OK");
-      else if (any_ok && any_err)   strcpy(reply, "OK (partial)");
-      else                          strcpy(reply, is_add ? "Err - list full or bad input" : "Err - not found or bad input");
-    } else {
-      strcpy(reply, "Err - usage: blacklist <path|chan> <list [offset]|add|rem|clear> [hex|#name[,...]] | blacklist stats");
-    }
-  } else if (memcmp(command, "set advert.jail ", 16) == 0) {
-    int hours = atoi(&command[16]);
-    if (hours < 0 || hours > 168) {
-      strcpy(reply, "Err - range is 0-168 hours (0=off)");
-    } else {
-      _prefs.advert_jail_hours = (uint8_t)hours;
-      savePrefs();
-      strcpy(reply, "OK");
-    }
-  } else if (strcmp(command, "get advert.jail") == 0) {
-    sprintf(reply, "> %d", (int)_prefs.advert_jail_hours);
-  } else if (strcmp(command, "jail clear") == 0) {
-    memset(_advert_jail, 0, sizeof(_advert_jail));
-    strcpy(reply, "OK");
-  } else if (strcmp(command, "jail") == 0 || memcmp(command, "jail ", 5) == 0) {
-    formatAdvertJail(reply, MAX_BLACKLIST_REPLY_LEN, command[4] ? atoi(&command[5]) : 0);
+  } else if (filters.handleCommand(command, reply, 160, (uint32_t)millis())) {
+    // handled by FilterModule
   } else if (memcmp(command, "timesync", 8) == 0 && (command[8] == 0 || command[8] == ' ')) {
-    handleTimeSyncCmd(sender_timestamp, &command[8], reply);
-  } else{
+    time_sync.handleCommand(&command[8], reply, 160, _ms->getMillis(), sender_timestamp == 0);
+  } else {
     _cli.handleCommand(sender_timestamp, command, reply);  // common CLI commands
   }
 }
