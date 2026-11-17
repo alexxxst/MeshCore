@@ -19,7 +19,6 @@ tempradio
 *
 on
 off
-set freq
 set radio.rxgain
 set radio.fem.txgain
 set guest.password

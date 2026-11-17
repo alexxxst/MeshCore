@@ -28,8 +28,8 @@ C    = P XOR SHA512("MC1-mask" || S[:32] || counter_le32)
 ```
 
 - `timestamp` is Unix UTC seconds.
-- `dict_id` identifies the token dictionary; the current value is `0xD55C`
-  (wire bytes `5C D5`).
+- `dict_id` identifies the token dictionary; the current value is `0xB8A1`
+  (wire bytes `A1 B8`).
 - The last 64 bytes are the signature. K1 is tried first, then K2.
 - The blob limit is 160 bytes, matching the signer.
 
@@ -48,7 +48,7 @@ python3 tools/gen_remote_command_dict.py
 ```
 
 The generated header contains the packed token blob, `uint16_t` offsets and
-`dict_id`. The dictionary has 157 tokens. If the signer dictionary changes,
+`dict_id`. The dictionary has 156 tokens. If the signer dictionary changes,
 regenerate the header and update the pinned test.
 
 ## Command execution

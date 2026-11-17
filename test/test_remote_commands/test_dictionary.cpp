@@ -5,8 +5,8 @@
 #include "RemoteCommandDictionary.h"
 
 TEST(RemoteCommandDictionary, PinsTheUpstreamVersion) {
-  EXPECT_EQ(0xD55C, REMOTE_CMD_DICT_ID);
-  EXPECT_EQ(157, REMOTE_CMD_DICT_COUNT);
+  EXPECT_EQ(0xB8A1, REMOTE_CMD_DICT_ID);
+  EXPECT_EQ(156, REMOTE_CMD_DICT_COUNT);
 }
 
 TEST(RemoteCommandDictionary, ExposesTokensByCode) {
@@ -15,9 +15,9 @@ TEST(RemoteCommandDictionary, ExposesTokensByCode) {
   EXPECT_STREQ("set radio", remoteCmdDictToken(15));
   EXPECT_STREQ("set tx", remoteCmdDictToken(16));
   EXPECT_STREQ("tempradio", remoteCmdDictToken(17));
-  EXPECT_STREQ("set guest.password", remoteCmdDictToken(24));
-  EXPECT_STREQ("region remove", remoteCmdDictToken(53));
-  EXPECT_STREQ("\r", remoteCmdDictToken(156));
+  EXPECT_STREQ("set guest.password", remoteCmdDictToken(23));
+  EXPECT_STREQ("region remove", remoteCmdDictToken(52));
+  EXPECT_STREQ("\r", remoteCmdDictToken(155));
 }
 
 TEST(RemoteCommandDictionary, KeepsThePackedBlobContiguous) {
