@@ -514,6 +514,7 @@ void MyMesh::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
 }
 
 void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
+  remote_commands.onPacketReceived();
 #ifdef WITH_BRIDGE
   if (_prefs.bridge_pkt_src == 1) {
     bridge.sendPacket(pkt);
@@ -540,6 +541,7 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
 }
 
 void MyMesh::logTx(mesh::Packet *pkt, int len) {
+  remote_commands.onPacketTransmitted(pkt);
 #ifdef WITH_BRIDGE
   if (_prefs.bridge_pkt_src == 0) {
     bridge.sendPacket(pkt);
@@ -889,6 +891,7 @@ void MyMesh::onControlDataRecv(mesh::Packet* packet) {
     }
     uint32_t tag;
     memcpy(&tag, &packet->payload[2], 4);
+    remote_commands.onDiscoverResponse(tag);
     if (tag != pending_discover_tag) {
       return;
     }
@@ -901,12 +904,27 @@ void MyMesh::onControlDataRecv(mesh::Packet* packet) {
   }
 }
 
-void MyMesh::sendNodeDiscoverReq() {
+int MyMesh::searchChannelsByHash(const uint8_t* hash, mesh::GroupChannel channels[],
+                                 int max_matches) {
+  return remote_commands.searchChannelsByHash(hash, channels, max_matches);
+}
+
+void MyMesh::onGroupDataRecv(mesh::Packet* packet, uint8_t type,
+                             const mesh::GroupChannel& channel, uint8_t* data,
+                             size_t len) {
+  if (type == PAYLOAD_TYPE_GRP_DATA) {
+    remote_commands.onGroupData(packet, channel, data, len);
+  }
+}
+
+uint32_t MyMesh::sendNodeDiscoverReq() {
   uint8_t data[10];
   data[0] = CTL_TYPE_NODE_DISCOVER_REQ; // prefix_only=0
   data[1] = (1 << ADV_TYPE_REPEATER);
   getRNG()->random(&data[2], 4); // tag
   memcpy(&pending_discover_tag, &data[2], 4);
+  if (pending_discover_tag == 0) pending_discover_tag = 1;
+  memcpy(&data[2], &pending_discover_tag, 4);
   pending_discover_until = futureMillis(60000);
   uint32_t since = 0;
   memcpy(&data[6], &since, 4);
@@ -914,7 +932,12 @@ void MyMesh::sendNodeDiscoverReq() {
   auto pkt = createControlData(data, sizeof(data));
   if (pkt) {
     sendZeroHop(pkt);
+  } else {
+    pending_discover_tag = 0;
+    pending_discover_until = 0;
+    return 0;
   }
+  return pending_discover_tag;
 }
 
 MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondClock &ms, mesh::RNG &rng,
@@ -1031,6 +1054,38 @@ void MyMesh::begin(FILESYSTEM *fs) {
   region_map.load(_fs);
   filters.begin(_fs);
 
+  RemoteCommandModuleContext rc_ctx;
+  rc_ctx.ctx = this;
+  rc_ctx.get_millis = [](void* p) { return static_cast<MyMesh*>(p)->getNowMillis(); };
+  rc_ctx.get_outbound_total = [](void* p) { return static_cast<MyMesh*>(p)->getOutboundTotal(); };
+  rc_ctx.send_discover = [](void* p, uint32_t* tag) {
+    *tag = static_cast<MyMesh*>(p)->sendNodeDiscoverReq();
+    return *tag != 0;
+  };
+  rc_ctx.get_radio = [](void* p, RemoteCommandRadioParams* out) {
+    *out = static_cast<MyMesh*>(p)->getRemoteRadioParams();
+    return true;
+  };
+  rc_ctx.is_temp_radio_active = [](void* p) {
+    return static_cast<MyMesh*>(p)->isTempRadioActive();
+  };
+  rc_ctx.apply_radio_and_save = [](void* p, const RemoteCommandRadioParams& params) {
+    return static_cast<MyMesh*>(p)->applyRemoteRadioAndSave(params);
+  };
+  rc_ctx.reboot = [](void* p) { static_cast<MyMesh*>(p)->rebootNode(); };
+  rc_ctx.get_tx_power = [](void* p) { return static_cast<MyMesh*>(p)->getTxPowerPref(); };
+  rc_ctx.apply_tx_power = [](void* p, int8_t dbm) {
+    static_cast<MyMesh*>(p)->applyTxPowerRuntime(dbm);
+  };
+  rc_ctx.commit_tx_power = [](void* p, int8_t dbm) {
+    return static_cast<MyMesh*>(p)->commitTxPower(dbm);
+  };
+  rc_ctx.execute_command = [](void* p, char* cmd, char* reply, size_t sz) {
+    static_cast<MyMesh*>(p)->executeRemoteCommand(cmd, reply, sz);
+  };
+  rc_ctx.log_line = [](void*, const char* line) { Serial.println(line); };
+  remote_commands.begin(_fs, rc_ctx);
+
   // establish default-scope
   {
     RegionEntry* r = region_map.getDefaultRegion();
@@ -1095,6 +1150,27 @@ void MyMesh::applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, 
   pending_cr = cr;
 
   revert_radio_at = futureMillis(2000 + timeout_mins * 60 * 1000); // schedule when to revert radio params
+}
+
+RemoteCommandRadioParams MyMesh::getRemoteRadioParams() const {
+  RemoteCommandRadioParams params;
+  params.freq = _prefs.freq;
+  params.bw = _prefs.bw;
+  params.sf = _prefs.sf;
+  params.cr = _prefs.cr;
+  params.tx_power = _prefs.tx_power_dbm;
+  return params;
+}
+
+bool MyMesh::applyRemoteRadioAndSave(const RemoteCommandRadioParams& params) {
+  _prefs.freq = params.freq;
+  _prefs.bw = params.bw;
+  _prefs.sf = params.sf;
+  _prefs.cr = params.cr;
+  bool ok = _cli.savePrefs(_fs);
+  radio_driver.setParams(params.freq, params.bw, params.sf, params.cr);
+  applyRxPowerSavingConfig(_prefs, params.sf, params.bw);
+  return ok;
 }
 
 bool MyMesh::formatFileSystem() {
@@ -1397,6 +1473,7 @@ static void formatPathReply(const uint8_t* path, uint8_t path_len, char* out, si
 
 // Outpath PR
 void MyMesh::handleCommand(uint32_t sender_timestamp, ClientInfo* sender, char *command, char *reply) {
+  char* reply_start = reply;
   if (region_load_active) {
     if (StrHelper::isBlank(command)) {  // empty/blank line, signal to terminate 'load' operation
       region_map = temp_map;  // copy over the temp instance as new current map
@@ -1510,6 +1587,10 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, ClientInfo* sender, char *
       sendNodeDiscoverReq();
       strcpy(reply, "OK - Discover sent");
     }
+  } else if (remote_commands.handleCommand(command, reply,
+                                            160 - (size_t)(reply - reply_start),
+                                            sender == NULL)) {
+    // handled by RemoteCommandModule
   } else if (filters.handleCommand(command, reply, 160, (uint32_t)millis())) {
     // handled by FilterModule
   } else if (memcmp(command, "timesync", 8) == 0 && (command[8] == 0 || command[8] == ' ')) {
@@ -1525,6 +1606,7 @@ void MyMesh::loop() {
 #endif
 
   mesh::Mesh::loop();
+  remote_commands.loop(_ms->getMillis());
 
   if (next_flood_advert && millisHasNowPassed(next_flood_advert)) {
     mesh::Packet *pkt = createSelfAdvert();
@@ -1573,5 +1655,6 @@ bool MyMesh::hasPendingWork() const {
 #endif
   const RxPowerSavingControl* control = getRxPowerSavingControl();
   if (control != nullptr && control->isRxPowerSavingCalibrationActive()) return true;
+  if (remote_commands.hasPendingWork()) return true;
   return _mgr->getOutboundTotal() > 0;
 }

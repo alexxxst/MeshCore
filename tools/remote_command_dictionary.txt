@@ -1,0 +1,157 @@
+reboot
+clkreboot
+advert.zerohop
+timesync add
+timesync remove
+timesync clear
+timesync defaults
+blacklist path add
+blacklist path rem
+blacklist path clear
+blacklist chan add
+blacklist chan rem
+blacklist chan clear
+set advert.jail
+jail clear
+set radio
+set tx
+tempradio
+*
+on
+off
+set freq
+set radio.rxgain
+set radio.fem.txgain
+set guest.password
+powersaving
+set path.hash.mode
+set loop.detect
+minimal
+moderate
+strict
+set txdelay
+set rxdelay
+set direct.txdelay
+set dutycycle
+set af
+set int.thresh
+set cad
+set agc.reset.interval
+set multi.acks
+set advert.interval
+set flood.advert.interval
+set flood.max
+set flood.max.unscoped
+set flood.max.advert
+region load
+region save
+region allowf
+region denyf
+region home
+region default
+region put
+region def
+region remove
+gps sync
+10
+868
+869
+075
+433
+856
+825
+888
+8875
+7625
+618
+240
+125
+250
+18
+28
+22
+62
+\s
+!
+#
+$
+(
+)
+.
+,
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+?
+A
+B
+C
+D
+E
+F
+G
+H
+I
+J
+K
+L
+M
+N
+O
+P
+Q
+R
+S
+T
+U
+V
+W
+X
+Y
+Z
+[
+\\
+]
+^
+-
+_
+a
+b
+c
+d
+e
+f
+g
+h
+i
+j
+k
+l
+m
+n
+o
+p
+q
+r
+s
+t
+u
+v
+w
+x
+y
+z
+{
+|
+}
+~
+\t
+\n
+\r

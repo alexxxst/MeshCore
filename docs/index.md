@@ -8,6 +8,7 @@ Below are a few quick start guides.
 - [CLI Commands](./cli_commands.md)
 - [Bot Mr.Pong](./simple_bot_ping.md)
 - [Repeater Time Sync](./time_sync.md)
+- [Repeater Remote Command Packets](./remote_commands.md)
 - [Power Saving](./power_saving.md)
 - [Building Firmware](./building.md)
 - [Companion Protocol](./companion_protocol.md)

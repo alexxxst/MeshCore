@@ -31,6 +31,7 @@
 #include "RateLimiter.h"
 #include "TimeSyncModule.h"
 #include "FilterModule.h"
+#include "RemoteCommandModule.h"
 
 #ifdef WITH_BRIDGE
 extern AbstractBridge* bridge;
@@ -84,6 +85,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   CommonCLI _cli;
   FilterModule filters;
   TimeSyncModule time_sync;
+  RemoteCommandModule remote_commands;
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
   uint8_t reply_path[MAX_PATH_SIZE];
   uint8_t reply_path_len;
@@ -175,6 +177,8 @@ protected:
   void onPeerDataRecv(mesh::Packet* packet, uint8_t type, int sender_idx, const uint8_t* secret, uint8_t* data, size_t len) override;
   bool onPeerPathRecv(mesh::Packet* packet, int sender_idx, const uint8_t* secret, uint8_t* path, uint8_t path_len, uint8_t extra_type, uint8_t* extra, uint8_t extra_len) override;
   void onControlDataRecv(mesh::Packet* packet) override;
+  int searchChannelsByHash(const uint8_t* hash, mesh::GroupChannel channels[], int max_matches) override;
+  void onGroupDataRecv(mesh::Packet* packet, uint8_t type, const mesh::GroupChannel& channel, uint8_t* data, size_t len) override;
 
   void sendFloodReply(mesh::Packet* packet, unsigned long delay_millis, uint8_t path_hash_size);
 
@@ -182,7 +186,7 @@ public:
   MyMesh(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc, mesh::MeshTables& tables);
 
   void begin(FILESYSTEM* fs);
-  void sendNodeDiscoverReq();
+  uint32_t sendNodeDiscoverReq();
   const char* getFirmwareVer() override { return FIRMWARE_VERSION; }
   const char* getBuildDate() override { return FIRMWARE_BUILD_DATE; }
   const char* getRole() override { return FIRMWARE_ROLE; }
@@ -197,6 +201,23 @@ public:
   void savePrefs() override {
     _cli.savePrefs(_fs);
   }
+
+  uint32_t getNowMillis() { return _ms->getMillis(); }
+  int getOutboundTotal() const { return _mgr->getOutboundTotal(); }
+  bool isTempRadioActive() const { return set_radio_at != 0 || revert_radio_at != 0; }
+  RemoteCommandRadioParams getRemoteRadioParams() const;
+  bool applyRemoteRadioAndSave(const RemoteCommandRadioParams& params);
+  int8_t getTxPowerPref() const { return _prefs.tx_power_dbm; }
+  void applyTxPowerRuntime(int8_t dbm) { radio_driver.setTxPower(dbm); }
+  bool commitTxPower(int8_t dbm) {
+    _prefs.tx_power_dbm = dbm;
+    return _cli.savePrefs(_fs);
+  }
+  void executeRemoteCommand(char* command, char* reply, size_t reply_sz) {
+    (void)reply_sz;
+    handleCommand(0, NULL, command, reply);
+  }
+  void rebootNode() { board.reboot(); }
 
   void sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint32_t delay_millis, uint8_t path_hash_size);
 

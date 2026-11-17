@@ -6,6 +6,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 - [Operational](#operational)
 - [Time sync](#time-sync-repeater-only)
+- [Remote command packets](#remote-command-packets-repeater-only)
 - [Neighbors](#neighbors-repeater-only)
 - [Packet filters](#packet-filters-repeater-only)
 - [Statistics](#statistics)
@@ -121,6 +122,34 @@ flash.
 console it also prints the full 32-byte keys. See
 [Repeater Time Sync](./time_sync.md) for the file format, the timestamp window,
 replay protection and the exact rules that move the clock.
+
+---
+
+## Remote command packets (Repeater Only)
+
+A repeater can execute CLI commands from signed `GRP_DATA` packets on channel
+**K0**. The packet uses `data_type` `0xFFFE`; its payload is an
+`ed25519-signer` blob verified with K1 or K2. See
+[Remote Command Packets](./remote_commands.md) for the wire format, keys,
+blocked commands, radio guards, replay protection and files.
+
+### View the remote command log
+
+**Usage:**
+- `cmdlog [offset]`
+
+**Parameters:**
+- `offset`: number of newest entries to skip; default `0`
+
+The reply is newest-first, one command per line:
+
+```text
+2026-11-17 12:34:56 : advert : fail
+2026-11-17 12:35:10 : set radio 869.618,62.5,8,5 : pending
+2026-11-17 12:35:12 : reboot : ok
+```
+
+Status is `ok`, `fail` or `pending`. The log holds the last 30 commands.
 
 ---
 
