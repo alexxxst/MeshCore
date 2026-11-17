@@ -57,6 +57,40 @@ const uint8_t JOURNAL_COMMAND = 1;
 const uint8_t JOURNAL_STATUS = 2;
 const uint16_t JOURNAL_COMPACT_AT = 60;
 
+void makeTempName(const char* name, char* out, size_t cap) {
+  snprintf(out, cap, "%s.tmp", name);
+}
+
+// LittleFS refuses to rename over an existing destination; ESP32/RP2040 may
+// replace it. Try the direct rename first, then remove the old file and retry.
+// If the second rename fails, the .tmp file is left in place as a recovery
+// copy and the caller can pick it up on the next boot.
+bool renameFile(FILESYSTEM* fs, const char* from, const char* to) {
+  if (fs == nullptr) return false;
+  if (fs->rename(from, to)) return true;
+  if (!fs->exists(to)) return false;
+  fs->remove(to);
+  return fs->rename(from, to);
+}
+
+bool writeFileAtomic(FILESYSTEM* fs, const char* name,
+                     const uint8_t* data, size_t len) {
+  if (fs == nullptr || name == nullptr || data == nullptr) return false;
+
+  char tmp[40];
+  makeTempName(name, tmp, sizeof(tmp));
+
+  File file = openWrite(fs, tmp);
+  if (!file) return false;
+  size_t written = file.write(data, len);
+  file.close();
+  if (written != len) {
+    fs->remove(tmp);
+    return false;
+  }
+  return renameFile(fs, tmp, name);
+}
+
 bool containsCI(const char* haystack, const char* needle) {
   if (haystack == nullptr || needle == nullptr) return false;
   size_t n = strlen(needle);
@@ -188,73 +222,85 @@ void RemoteCommandModule::begin(FILESYSTEM* fs, const RemoteCommandModuleContext
 bool RemoteCommandModule::ensureLogFile() {
   if (_fs == nullptr) return false;
   if (_fs->exists(F2_FILE)) return true;
-  File file = openWrite(_fs, F2_FILE);
-  if (!file) return false;
-  size_t n = file.write(JOURNAL_MAGIC, sizeof(JOURNAL_MAGIC));
-  file.close();
   _journal_records = 0;
-  return n == sizeof(JOURNAL_MAGIC);
+  return writeFileAtomic(_fs, F2_FILE, JOURNAL_MAGIC, sizeof(JOURNAL_MAGIC));
 }
 
 bool RemoteCommandModule::loadLog() {
   _log.clear();
   _journal_records = 0;
   if (_fs == nullptr) return false;
-  if (!ensureLogFile()) return false;
-
-  File file = openRead(_fs, F2_FILE);
-  if (!file) return false;
-
-  uint8_t magic[sizeof(JOURNAL_MAGIC)];
-  if (file.read(magic, sizeof(magic)) != (int)sizeof(magic) ||
-      memcmp(magic, JOURNAL_MAGIC, sizeof(magic)) != 0) {
-    file.close();
-    compactLog();
-    return false;
-  }
 
   bool truncated = false;
-  uint8_t hdr[11];
-  while (true) {
-    int got = file.read(hdr, sizeof(hdr));
-    if (got == 0) break;
-    if (got != (int)sizeof(hdr)) {
-      truncated = true;
-      break;
+  auto tryLoadJournal = [&](const char* name) -> bool {
+    _log.clear();
+    _journal_records = 0;
+    truncated = false;
+
+    File file = openRead(_fs, name);
+    if (!file) return false;
+
+    uint8_t magic[sizeof(JOURNAL_MAGIC)];
+    if (file.read(magic, sizeof(magic)) != (int)sizeof(magic) ||
+        memcmp(magic, JOURNAL_MAGIC, sizeof(magic)) != 0) {
+      file.close();
+      return false;
     }
 
-    uint8_t type = hdr[0];
-    uint32_t seq = readLe32(hdr + 1);
-    uint32_t ts = readLe32(hdr + 5);
-    uint8_t status = hdr[9];
-    uint8_t len = hdr[10];
-    if (len > REMOTE_CMD_MAX_LINE) {
-      truncated = true;
-      break;
-    }
-
-    char command[REMOTE_CMD_MAX_LINE + 1];
-    command[0] = 0;
-    if (len > 0) {
-      if (file.read((uint8_t*)command, len) != (int)len) {
+    uint8_t hdr[11];
+    while (true) {
+      int got = file.read(hdr, sizeof(hdr));
+      if (got == 0) break;
+      if (got != (int)sizeof(hdr)) {
         truncated = true;
         break;
       }
-      command[len] = 0;
-    }
 
-    bool ok = false;
-    if (type == JOURNAL_COMMAND) {
-      ok = _log.appendRecord(seq, ts, status, command, len);
-    } else if (type == JOURNAL_STATUS) {
-      ok = _log.setStatus(seq, status);
-    } else {
-      truncated = true;
-      break;
+      uint8_t type = hdr[0];
+      uint32_t seq = readLe32(hdr + 1);
+      uint32_t ts = readLe32(hdr + 5);
+      uint8_t status = hdr[9];
+      uint8_t len = hdr[10];
+      if (len > REMOTE_CMD_MAX_LINE) {
+        truncated = true;
+        break;
+      }
+
+      char command[REMOTE_CMD_MAX_LINE + 1];
+      command[0] = 0;
+      if (len > 0) {
+        if (file.read((uint8_t*)command, len) != (int)len) {
+          truncated = true;
+          break;
+        }
+        command[len] = 0;
+      }
+
+      bool ok = false;
+      if (type == JOURNAL_COMMAND) {
+        ok = _log.appendRecord(seq, ts, status, command, len);
+      } else if (type == JOURNAL_STATUS) {
+        ok = _log.setStatus(seq, status);
+      } else {
+        truncated = true;
+        break;
+      }
+      if (ok) ++_journal_records;
     }
-    if (ok) ++_journal_records;
+    file.close();
+    return true;
+  };
+
+  if (!tryLoadJournal(F2_FILE)) {
+    char tmp[40];
+    makeTempName(F2_FILE, tmp, sizeof(tmp));
+    if (!tryLoadJournal(tmp)) {
+      compactLog();
+      return false;
+    }
+    renameFile(_fs, tmp, F2_FILE);
+    truncated = true;   // normalise the recovered copy through compaction
   }
-  file.close();
 
   if (truncated || _journal_records > JOURNAL_COMPACT_AT) compactLog();
   return true;
@@ -266,7 +312,9 @@ bool RemoteCommandModule::saveLog() {
 
 bool RemoteCommandModule::compactLog() {
   if (_fs == nullptr) return false;
-  File file = openWrite(_fs, F2_FILE);
+  char tmp[40];
+  makeTempName(F2_FILE, tmp, sizeof(tmp));
+  File file = openWrite(_fs, tmp);
   if (!file) return false;
 
   bool ok = file.write(JOURNAL_MAGIC, sizeof(JOURNAL_MAGIC)) == sizeof(JOURNAL_MAGIC);
@@ -285,8 +333,13 @@ bool RemoteCommandModule::compactLog() {
     }
   }
   file.close();
-  if (ok) _journal_records = (uint16_t)_log.count();
-  return ok;
+  if (!ok) {
+    _fs->remove(tmp);
+    return false;
+  }
+  if (!renameFile(_fs, tmp, F2_FILE)) return false;   // keep tmp for recovery
+  _journal_records = (uint16_t)_log.count();
+  return true;
 }
 
 bool RemoteCommandModule::appendJournalCommand(uint32_t seq, uint32_t timestamp,
@@ -340,32 +393,41 @@ bool RemoteCommandModule::persistStatus(uint32_t seq, uint8_t status) {
 }
 
 bool RemoteCommandModule::loadTimestampFile(const char* name, uint32_t& timestamp) {
-  if (_fs == nullptr || !_fs->exists(name)) return false;
-  File file = openRead(_fs, name);
-  if (!file) return false;
-  uint8_t buf[12];
-  int len = file.read(buf, sizeof(buf));
-  file.close();
-  if (len != (int)sizeof(buf)) return false;
-  if (memcmp(buf, "RCT1", 4) != 0) return false;
-  uint32_t ts = readLe32(buf + 4);
-  uint32_t inv = readLe32(buf + 8);
-  if ((~ts) != inv) return false;
-  timestamp = ts;
-  return true;
+  if (_fs == nullptr) return false;
+
+  auto readOne = [&](const char* filename) -> bool {
+    if (!_fs->exists(filename)) return false;
+    File file = openRead(_fs, filename);
+    if (!file) return false;
+    uint8_t buf[12];
+    int len = file.read(buf, sizeof(buf));
+    file.close();
+    if (len != (int)sizeof(buf)) return false;
+    if (memcmp(buf, "RCT1", 4) != 0) return false;
+    uint32_t ts = readLe32(buf + 4);
+    uint32_t inv = readLe32(buf + 8);
+    if ((~ts) != inv) return false;
+    timestamp = ts;
+    return true;
+  };
+
+  if (readOne(name)) return true;
+  char tmp[40];
+  makeTempName(name, tmp, sizeof(tmp));
+  if (readOne(tmp)) {
+    renameFile(_fs, tmp, name);
+    return true;
+  }
+  return false;
 }
 
 bool RemoteCommandModule::saveTimestampFile(const char* name, uint32_t timestamp) {
   if (_fs == nullptr) return false;
-  File file = openWrite(_fs, name);
-  if (!file) return false;
   uint8_t buf[12];
   memcpy(buf, "RCT1", 4);
   writeLe32(buf + 4, timestamp);
   writeLe32(buf + 8, ~timestamp);
-  size_t n = file.write(buf, sizeof(buf));
-  file.close();
-  return n == sizeof(buf);
+  return writeFileAtomic(_fs, name, buf, sizeof(buf));
 }
 
 bool RemoteCommandModule::loadLastTimestamp() {
@@ -401,28 +463,44 @@ bool RemoteCommandModule::saveLastTimestamp(uint32_t timestamp) {
 
 bool RemoteCommandModule::loadGuard() {
   _guard.clear();
-  if (_fs == nullptr || !_fs->exists(F1_FILE)) return true;
-  File file = openRead(_fs, F1_FILE);
-  if (!file) return false;
-  uint8_t buf[RemoteRadioGuardState::SERIALIZED_SIZE];
-  int len = file.read(buf, sizeof(buf));
-  file.close();
-  return len == (int)sizeof(buf) && _guard.deserialize(buf, sizeof(buf));
+  if (_fs == nullptr) return true;
+
+  auto readOne = [&](const char* name) -> bool {
+    if (!_fs->exists(name)) return false;
+    File file = openRead(_fs, name);
+    if (!file) return false;
+    uint8_t buf[RemoteRadioGuardState::SERIALIZED_SIZE];
+    int len = file.read(buf, sizeof(buf));
+    file.close();
+    _guard.clear();
+    return len == (int)sizeof(buf) && _guard.deserialize(buf, sizeof(buf));
+  };
+
+  if (readOne(F1_FILE)) return true;
+
+  char tmp[40];
+  makeTempName(F1_FILE, tmp, sizeof(tmp));
+  if (readOne(tmp)) {
+    renameFile(_fs, tmp, F1_FILE);
+    return true;
+  }
+  _guard.clear();
+  return false;
 }
 
 bool RemoteCommandModule::saveGuard() {
   if (_fs == nullptr) return false;
-  File file = openWrite(_fs, F1_FILE);
-  if (!file) return false;
   uint8_t buf[RemoteRadioGuardState::SERIALIZED_SIZE];
   size_t len = _guard.serialize(buf, sizeof(buf));
-  size_t n = file.write(buf, len);
-  file.close();
-  return len > 0 && n == len;
+  return len > 0 && writeFileAtomic(_fs, F1_FILE, buf, len);
 }
 
 void RemoteCommandModule::removeGuard() {
-  if (_fs != nullptr && _fs->exists(F1_FILE)) _fs->remove(F1_FILE);
+  if (_fs == nullptr) return;
+  if (_fs->exists(F1_FILE)) _fs->remove(F1_FILE);
+  char tmp[40];
+  makeTempName(F1_FILE, tmp, sizeof(tmp));
+  if (_fs->exists(tmp)) _fs->remove(tmp);
 }
 
 void RemoteCommandModule::reconcilePending() {

@@ -252,6 +252,12 @@ are compensated for:
 All files are optional. A missing or malformed F1 is ignored; a malformed F2
 is reset. The timestamp journal keeps replay protection even if F2 is lost.
 
+Full-file writes (F1, F2 compaction and the timestamp slots) go through a
+`.tmp` file followed by rename. If power is lost between the write and the
+rename, the previous file remains valid and the `.tmp` copy is used as a
+recovery source on the next boot. F2 command records are still appended
+directly.
+
 F2 is an append-only journal: a small command record is appended before the
 command runs, and a `pending → ok/fail` transition appends a small status
 record. When the journal grows past about 60 records it is compacted to the
