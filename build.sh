@@ -233,8 +233,10 @@ build_repeater_firmwares() {
   build_firmware "Generic_ESP32S3_Zero_SX1268_repeater"
   build_firmware "MTL_1_repeater"
   build_firmware "MTL_1_SX1268_repeater"
-  build_firmware "MTL_2_E22_sx1262_repeater"
-  build_firmware "MTL_2_E22_sx1268_repeater"
+  build_firmware "MTL_2_sx1262_sh1106_repeater"
+  build_firmware "MTL_2_sx1262_ssd1306_repeater"
+  build_firmware "MTL_2_sx1268_sh1106_repeater"
+  build_firmware "MTL_2_sx1268_ssd1306_repeater"
   build_firmware "Tbeam_SX1276_repeater"
   build_firmware "Tbeam_SX1262_repeater"
   build_firmware "LilyGo_TBeam_1W_repeater"
@@ -320,8 +322,10 @@ build_companion_firmwares() {
   build_firmware "MTL_1_companion_radio_ble"
   build_firmware "MTL_1_SX1268_companion_radio_ble"
 
-  build_firmware "MTL_2_E22_sx1262_companion_radio_ble"
-  build_firmware "MTL_2_E22_sx1268_companion_radio_ble"
+  build_firmware "MTL_2_sx1262_sh1106_companion_radio_ble"
+  build_firmware "MTL_2_sx1262_ssd1306_companion_radio_ble"
+  build_firmware "MTL_2_sx1268_sh1106_companion_radio_ble"
+  build_firmware "MTL_2_sx1268_ssd1306_companion_radio_ble"
 
 }
 
