@@ -54,7 +54,7 @@ The Simple Secure Chat example can be interacted with through the Serial Monitor
 
 We have prebuilt firmware ready to flash on supported devices.
 
-- Launch https://meshcore.io/flasher
+- Launch https://meshcore.spb.ru/flasher/
 - Select a supported device
 - Flash one of the firmware types:
   - Companion, Repeater or Room Server
@@ -82,7 +82,7 @@ They can also be managed via LoRa in the mobile app by using the Remote Manageme
 
 ## 🛠 Hardware Compatibility
 
-MeshCore is designed for devices listed in the [MeshCore Flasher](https://meshcore.io/flasher).
+MeshCore is designed for devices listed in the [MeshCore Flasher](https://meshcore.spb.ru/flasher/).
 
 Variant notes for this tree:
 
