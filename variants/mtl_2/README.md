@@ -43,6 +43,7 @@ pio run -e MTL_2_sx1268_ssd1306_repeater
 
 ```bash
 sh build.sh build-repeater-firmwares
+sh build.sh build-companion-firmwares
 ```
 
 ## Распиновка
