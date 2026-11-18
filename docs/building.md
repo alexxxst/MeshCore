@@ -101,6 +101,8 @@ Heltec_t096_repeater
 Heltec_t114_repeater
 GAT562_30S_Mesh_Kit_repeater
 ProMicro_repeater
+Generic_ESP32S3_Zero_SX1262_repeater
+Generic_ESP32S3_Zero_SX1268_repeater
 MTL_1_repeater
 MTL_1_SX1268_repeater
 MTL_2_sx1262_sh1106_repeater
@@ -202,6 +204,8 @@ and CR from `[arduino_base]`; only TX power remains in the variant file. The
 | Heltec V4 | 868.856 MHz | 62.5 kHz | 7 | 7 | 18 dBm |
 | MTL-1 (SX1262) | 868.856 MHz | 62.5 kHz | 7 | 7 | 18 dBm |
 | MTL-1 (SX1268) | 433.000 MHz | 62.5 kHz | 7 | 5 | 18 dBm |
+| MTL-2 (SX1262) | 868.856 MHz | 62.5 kHz | 7 | 7 | 22 dBm |
+| MTL-2 (SX1268) | 433.000 MHz | 62.5 kHz | 7 | 5 | 22 dBm |
 
 All of these can be overridden with the `LORA_FREQ`, `LORA_BW`, `LORA_SF`,
 `LORA_CR` and `LORA_TX_POWER` build flags.
