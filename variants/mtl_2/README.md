@@ -9,12 +9,16 @@
 
 ## Прошивки
 
-| Окружение | Радио | Частота | BW | SF | CR |
-|---|---|---:|---:|---:|---:|
-| `MTL_2_E22_sx1262_companion_radio_ble` | SX1262 | 868.856 | 62.5 | 7 | 7 |
-| `MTL_2_E22_sx1262_repeater` | SX1262 | 868.856 | 62.5 | 7 | 7 |
-| `MTL_2_E22_sx1268_companion_radio_ble` | SX1268 | 433.0 | 62.5 | 7 | 5 |
-| `MTL_2_E22_sx1268_repeater` | SX1268 | 433.0 | 62.5 | 7 | 5 |
+| Окружение | Радио | Частота | BW | SF | CR | Экран | Роль |
+|---|---|---:|---:|---:|---:|---|---|
+| `MTL_2_sx1262_sh1106_companion_radio_ble` | SX1262 | 868.856 | 62.5 | 7 | 7 | SH1106 | companion BLE |
+| `MTL_2_sx1262_ssd1306_companion_radio_ble` | SX1262 | 868.856 | 62.5 | 7 | 7 | SSD1306 | companion BLE |
+| `MTL_2_sx1268_sh1106_companion_radio_ble` | SX1268 | 433.0 | 62.5 | 7 | 5 | SH1106 | companion BLE |
+| `MTL_2_sx1268_ssd1306_companion_radio_ble` | SX1268 | 433.0 | 62.5 | 7 | 5 | SSD1306 | companion BLE |
+| `MTL_2_sx1262_sh1106_repeater` | SX1262 | 868.856 | 62.5 | 7 | 7 | SH1106 | repeater |
+| `MTL_2_sx1262_ssd1306_repeater` | SX1262 | 868.856 | 62.5 | 7 | 7 | SSD1306 | repeater |
+| `MTL_2_sx1268_sh1106_repeater` | SX1268 | 433.0 | 62.5 | 7 | 5 | SH1106 | repeater |
+| `MTL_2_sx1268_ssd1306_repeater` | SX1268 | 433.0 | 62.5 | 7 | 5 | SSD1306 | repeater |
 
 USB-companion и RS232-мост в этот вариант не входят.
 
@@ -25,13 +29,17 @@ USB-companion и RS232-мост в этот вариант не входят.
 ## Сборка
 
 ```bash
-pio run -e MTL_2_E22_sx1262_companion_radio_ble
-pio run -e MTL_2_E22_sx1262_repeater
-pio run -e MTL_2_E22_sx1268_companion_radio_ble
-pio run -e MTL_2_E22_sx1268_repeater
+pio run -e MTL_2_sx1262_sh1106_companion_radio_ble
+pio run -e MTL_2_sx1262_ssd1306_companion_radio_ble
+pio run -e MTL_2_sx1268_sh1106_companion_radio_ble
+pio run -e MTL_2_sx1268_ssd1306_companion_radio_ble
+pio run -e MTL_2_sx1262_sh1106_repeater
+pio run -e MTL_2_sx1262_ssd1306_repeater
+pio run -e MTL_2_sx1268_sh1106_repeater
+pio run -e MTL_2_sx1268_ssd1306_repeater
 ```
 
-Готовые `.uf2`/`.zip` лежат в `.pio/build/<env>/`. Для repeater’ов также добавлены строки в `build.sh`:
+Готовые `.uf2`/`.zip` лежат в `.pio/build/<env>/`. Все 8 окружений добавлены в `build.sh`:
 
 ```bash
 sh build.sh build-repeater-firmwares
@@ -63,10 +71,10 @@ sh build.sh build-repeater-firmwares
 | Buzzer | P0.06 | 6 | |
 | Vibration | P0.08 | 8 | |
 
-Дисплей:
+Дисплеи (доступны в обеих ролях, 128×64, I2C, reset `-1`):
 
-- companion — SH1106 128×64, I2C, reset `-1`;
-- repeater — SSD1306 128×64, I2C, reset `-1`.
+- SH1106 — суффикс `_sh1106_`;
+- SSD1306 — суффикс `_ssd1306_`.
 
 ## Датчики
 

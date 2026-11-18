@@ -84,8 +84,10 @@ Tbeam_SX1262_companion_radio_ble
 Tbeam_SX1276_companion_radio_ble
 MTL_1_companion_radio_ble
 MTL_1_SX1268_companion_radio_ble
-MTL_2_E22_sx1262_companion_radio_ble
-MTL_2_E22_sx1268_companion_radio_ble
+MTL_2_sx1262_sh1106_companion_radio_ble
+MTL_2_sx1262_ssd1306_companion_radio_ble
+MTL_2_sx1268_sh1106_companion_radio_ble
+MTL_2_sx1268_ssd1306_companion_radio_ble
 ```
 
 ### Selected repeater set
@@ -101,8 +103,10 @@ GAT562_30S_Mesh_Kit_repeater
 ProMicro_repeater
 MTL_1_repeater
 MTL_1_SX1268_repeater
-MTL_2_E22_sx1262_repeater
-MTL_2_E22_sx1268_repeater
+MTL_2_sx1262_sh1106_repeater
+MTL_2_sx1262_ssd1306_repeater
+MTL_2_sx1268_sh1106_repeater
+MTL_2_sx1268_ssd1306_repeater
 Tbeam_SX1276_repeater
 Tbeam_SX1262_repeater
 LilyGo_TBeam_1W_repeater
