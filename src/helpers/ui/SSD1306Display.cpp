@@ -60,10 +60,12 @@ void SSD1306Display::startFrame(ColorVal bkg) {
   _color = SSD1306_WHITE;
   display.setTextColor(_color);
   display.setTextSize(1);
+  _textSize = 1;
   display.cp437(true);         // Use full 256 char 'Code Page 437' font
 }
 
 void SSD1306Display::setTextSize(int sz) {
+  _textSize = sz;
   display.setTextSize(sz);
 }
 
@@ -77,7 +79,25 @@ void SSD1306Display::setCursor(int x, int y) {
 }
 
 void SSD1306Display::print(const char* str) {
+#if CYRILLIC_SUPPORT
+  if (cyr::print(display, _textSize, str, _color)) return;
+#endif
   display.print(str);
+}
+
+void SSD1306Display::printWordWrap(const char* str, int max_width) {
+#if CYRILLIC_SUPPORT
+  if (cyr::wordWrap(display, _textSize, str, max_width, height(), _color)) return;
+#endif
+  print(str);
+}
+
+void SSD1306Display::translateUTF8ToBlocks(char* dest, const char* src, size_t dest_size) {
+#if CYRILLIC_SUPPORT
+  cyr::translateUtf8KeepCyrillic(dest, src, dest_size);
+#else
+  DisplayDriver::translateUTF8ToBlocks(dest, src, dest_size);
+#endif
 }
 
 void SSD1306Display::fillRect(int x, int y, int w, int h) {
@@ -93,6 +113,9 @@ void SSD1306Display::drawXbm(int x, int y, const uint8_t* bits, int w, int h) {
 }
 
 uint16_t SSD1306Display::getTextWidth(const char* str) {
+#if CYRILLIC_SUPPORT
+  if (cyr::hasNonAscii(str)) return cyr::width(display, _textSize, str);
+#endif
   int16_t x1, y1;
   uint16_t w, h;
   display.getTextBounds(str, 0, 0, &x1, &y1, &w, &h);
