@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <helpers/ui/cyrillic/CyrillicFont.h>
+#include <helpers/ui/cyrillic/CyrillicGlyphs.h>
 
 TEST(CyrillicFont, DecodesAsciiCyrillicAndEmoji) {
   uint32_t cp = 0;
@@ -56,4 +57,28 @@ TEST(CyrillicFont, ZeroSizeLeavesBufferUntouched) {
   char dest[2] = {'X', 0};
   cyr::translateUtf8KeepCyrillic(dest, "\xD0\x9F", 0);
   EXPECT_EQ('X', dest[0]);
+}
+
+TEST(CyrillicGlyphs, OledFaceHas66Glyphs) {
+  EXPECT_EQ(10, CYR_OLED.height);
+  EXPECT_EQ(6, advanceFor(CYR_OLED, 0));
+  for (int i = 0; i < 66; i++) {
+    EXPECT_GE(advanceFor(CYR_OLED, i), 1);
+    EXPECT_LE(advanceFor(CYR_OLED, i), 16);
+  }
+}
+
+TEST(CyrillicGlyphs, PixelAccessIsBounded) {
+  for (int i = 0; i < 66; i++) {
+    EXPECT_FALSE(pixelFor(CYR_OLED, i, advanceFor(CYR_OLED, i), 0));
+    EXPECT_FALSE(pixelFor(CYR_OLED, i, 0, CYR_OLED.height));
+    EXPECT_FALSE(pixelFor(CYR_OLED, i, -1, 0));
+  }
+  bool any = false;
+  for (int y = 0; y < CYR_OLED.height && !any; y++) {
+    for (int x = 0; x < advanceFor(CYR_OLED, 0); x++) {
+      any = any || pixelFor(CYR_OLED, 0, x, y);
+    }
+  }
+  EXPECT_TRUE(any) << "glyph A must not be empty";
 }
