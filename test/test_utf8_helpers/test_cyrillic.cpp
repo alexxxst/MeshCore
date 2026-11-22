@@ -1,12 +1,17 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <set>
 #include <string>
+#include <tuple>
+#include <utility>
+#include <vector>
 
 #include <helpers/UTF8Helpers.h>
 #include <helpers/ui/DisplayDriver.h>
 #include <helpers/ui/cyrillic/CyrillicFont.h>
 #include <helpers/ui/cyrillic/CyrillicGlyphs.h>
+#include <helpers/ui/cyrillic/CyrText.h>
 
 TEST(CyrillicFont, DecodesAsciiCyrillicAndEmoji) {
   uint32_t cp = 0;
@@ -129,4 +134,75 @@ TEST(DisplayText, EllipsisStillWorksForAscii) {
   FakeDisplay d;
   d.drawTextEllipsized(0, 0, 4, "Hello");
   EXPECT_EQ("H...", d.out);
+}
+
+
+struct FakeGfx {
+  int x = 0, y = 0;
+  std::string out;
+  std::vector<std::pair<int, int>> pixels;
+  std::vector<std::pair<int, int>> cursors;
+
+  int16_t getCursorX() const { return x; }
+  int16_t getCursorY() const { return y; }
+  void setCursor(int nx, int ny) {
+    x = nx;
+    y = ny;
+    cursors.emplace_back(nx, ny);
+  }
+  void print(const char* s) {
+    out += s;
+    x += 6 * (int)strlen(s);
+  }
+  void drawPixel(int px, int py, uint16_t) { pixels.emplace_back(px, py); }
+};
+
+TEST(CyrText, AsciiOnlyIsNotHandled) {
+  FakeGfx g;
+  if (!cyr::print(g, 1, "Hello", 1)) g.print("Hello");
+  EXPECT_EQ("Hello", g.out);
+  EXPECT_TRUE(g.pixels.empty());
+}
+
+TEST(CyrText, MixedStringDrawsBothParts) {
+  FakeGfx g;
+  EXPECT_TRUE(cyr::print(g, 1, "Hi \xD0\x9F\xD1\x80\xD0\xB8", 1));
+  EXPECT_EQ("Hi ", g.out);
+  EXPECT_FALSE(g.pixels.empty());
+  EXPECT_EQ(36, g.x);  // "Hi " = 18, "При" = 18
+}
+
+TEST(CyrText, WidthCountsUtf8CodePoints) {
+  FakeGfx g;
+  EXPECT_EQ(36, cyr::width(g, 1, "Hi \xD0\x9F\xD1\x80\xD0\xB8"));
+  EXPECT_EQ(72, cyr::width(g, 2, "Hi \xD0\x9F\xD1\x80\xD0\xB8"));
+}
+
+TEST(CyrText, EmojiBecomesSingleSpaceAdvance) {
+  FakeGfx g;
+  EXPECT_TRUE(cyr::print(g, 1, "A\xF0\x9F\x99\x82" "B", 1));
+  EXPECT_EQ("AB", g.out);
+  EXPECT_TRUE(g.pixels.empty());
+  EXPECT_EQ(18, g.x);
+}
+
+TEST(CyrText, WordWrapBreaksAtSpacesAndScales) {
+  FakeGfx g;
+  EXPECT_TRUE(cyr::wordWrap(g, 1, "Hi \xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82", 24, 64, 1));
+  std::set<int> line_ys;
+  for (auto& c : g.cursors) {
+    if (c.first == 0) line_ys.insert(c.second);
+  }
+  EXPECT_EQ(3u, line_ys.size());
+  EXPECT_EQ(22, *line_ys.rbegin());
+}
+
+TEST(CyrText, WordWrapStopsAboveBottom) {
+  FakeGfx g;
+  EXPECT_TRUE(cyr::wordWrap(g, 1, "Hi \xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82", 24, 30, 1));
+  std::set<int> line_ys;
+  for (auto& c : g.cursors) {
+    if (c.first == 0) line_ys.insert(c.second);
+  }
+  EXPECT_EQ(2u, line_ys.size());
 }
