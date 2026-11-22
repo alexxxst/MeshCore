@@ -214,3 +214,4 @@ All of these can be overridden with the `LORA_FREQ`, `LORA_BW`, `LORA_SF`,
 
 - [MTL-1](https://github.com/alexxxst/MeshCore/blob/main/variants/mtl_1/README.md)
 - [MTL-2](https://github.com/alexxxst/MeshCore/blob/main/variants/mtl_2/README.md)
+- [Generic ESP32-S3-Zero](https://github.com/alexxxst/MeshCore/blob/main/variants/generic_esp32s3_zero/README.md)
