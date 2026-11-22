@@ -38,6 +38,16 @@ TEST(CyrillicFont, TruncatedSequenceDoesNotRunPastNul) {
   p = cyr::utf8Next(three_byte, cp);
   EXPECT_EQ((uint32_t)(unsigned char)0xE0, cp);
   EXPECT_EQ(1, p - three_byte);
+
+  const char four_byte[] = {(char)0xF0, (char)0x9F, (char)0x99, 0};
+  p = cyr::utf8Next(four_byte, cp);
+  EXPECT_EQ((uint32_t)(unsigned char)0xF0, cp);
+  EXPECT_EQ(1, p - four_byte);
+
+  const char lone_continuation[] = {(char)0x80, 0};
+  p = cyr::utf8Next(lone_continuation, cp);
+  EXPECT_EQ((uint32_t)0x80, cp);
+  EXPECT_EQ(1, p - lone_continuation);
 }
 
 TEST(CyrillicFont, MapsRussianLetters) {
@@ -67,6 +77,18 @@ TEST(CyrillicFont, ZeroSizeLeavesBufferUntouched) {
   char dest[2] = {'X', 0};
   cyr::translateUtf8KeepCyrillic(dest, "\xD0\x9F", 0);
   EXPECT_EQ('X', dest[0]);
+}
+
+TEST(CyrillicFont, SizeOneWritesEmptyString) {
+  char dest[1] = {'X'};
+  cyr::translateUtf8KeepCyrillic(dest, "\xD0\x9F", 1);
+  EXPECT_EQ(0, dest[0]);
+}
+
+TEST(CyrillicFont, ExactFitCopiesWholeString) {
+  char dest[7];
+  cyr::translateUtf8KeepCyrillic(dest, "\xD0\x9F\xD1\x80\xD0\xB8", sizeof(dest));
+  EXPECT_STREQ("\xD0\x9F\xD1\x80\xD0\xB8", dest);
 }
 
 TEST(CyrillicGlyphs, OledFaceHas66Glyphs) {
@@ -136,12 +158,34 @@ TEST(DisplayText, EllipsisStillWorksForAscii) {
   EXPECT_EQ("H...", d.out);
 }
 
+TEST(DisplayText, EllipsisAtEightKeepsWholeCodePoints) {
+  FakeDisplay d;
+  d.drawTextEllipsized(0, 0, 8, "\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82");
+  EXPECT_EQ("\xD0\x9F\xD1\x80...", d.out);
+  EXPECT_EQ(d.out.size(), mesh::validUtf8PrefixLength(d.out.c_str(), d.out.size()));
+}
+
+TEST(DisplayText, EllipsisAtTenKeepsWholeCodePoints) {
+  FakeDisplay d;
+  d.drawTextEllipsized(0, 0, 10, "\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82");
+  EXPECT_EQ("\xD0\x9F\xD1\x80\xD0\xB8...", d.out);
+  EXPECT_EQ(d.out.size(), mesh::validUtf8PrefixLength(d.out.c_str(), d.out.size()));
+}
+
+TEST(DisplayText, EllipsisWithEmojiKeepsValidUtf8) {
+  FakeDisplay d;
+  d.drawTextEllipsized(0, 0, 8, "A\xF0\x9F\x99\x82" "BCDEF");
+  EXPECT_EQ("A\xF0\x9F\x99\x82...", d.out);
+  EXPECT_EQ(d.out.size(), mesh::validUtf8PrefixLength(d.out.c_str(), d.out.size()));
+}
+
 
 struct FakeGfx {
   int x = 0, y = 0;
   std::string out;
   std::vector<std::pair<int, int>> pixels;
   std::vector<std::pair<int, int>> cursors;
+  int textSize = 1;
 
   int16_t getCursorX() const { return x; }
   int16_t getCursorY() const { return y; }
@@ -152,7 +196,7 @@ struct FakeGfx {
   }
   void print(const char* s) {
     out += s;
-    x += 6 * (int)strlen(s);
+    x += 6 * textSize * (int)strlen(s);
   }
   void drawPixel(int px, int py, uint16_t) { pixels.emplace_back(px, py); }
 };
@@ -205,4 +249,76 @@ TEST(CyrText, WordWrapStopsAboveBottom) {
     if (c.first == 0) line_ys.insert(c.second);
   }
   EXPECT_EQ(2u, line_ys.size());
+}
+
+
+TEST(CyrText, AsciiRunRespectsDeviceTextSize) {
+  FakeGfx g;
+  g.textSize = 2;
+  g.print("AB");
+  EXPECT_EQ(24, g.x);
+}
+
+TEST(CyrText, WordWrapLongUnbrokenWordStaysInBounds) {
+  FakeGfx g;
+  EXPECT_TRUE(cyr::wordWrap(g, 1, "\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82\xD1\x81\xD1\x82\xD0\xB2\xD0\xB8\xD0\xB5", 24, 64, 1));
+  ASSERT_FALSE(g.pixels.empty());
+  for (auto& px : g.pixels) {
+    EXPECT_LT(px.first, 24);
+    EXPECT_LT(px.second, 64);
+  }
+  std::set<int> line_ys;
+  for (auto& c : g.cursors) {
+    if (c.first == 0) line_ys.insert(c.second);
+  }
+  EXPECT_EQ(3u, line_ys.size());
+}
+
+TEST(CyrText, WordWrapAtSizeTwoScalesAndFits) {
+  FakeGfx g;
+  EXPECT_TRUE(cyr::wordWrap(g, 2, "\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82", 48, 64, 1));
+  ASSERT_FALSE(g.pixels.empty());
+  for (auto& px : g.pixels) {
+    EXPECT_LT(px.first, 48);
+    EXPECT_LT(px.second, 64);
+  }
+  std::set<int> line_ys;
+  for (auto& c : g.cursors) {
+    if (c.first == 0) line_ys.insert(c.second);
+  }
+  EXPECT_EQ(2u, line_ys.size());
+}
+
+TEST(CyrText, NewlineMovesToNextLine) {
+  FakeGfx g;
+  EXPECT_TRUE(cyr::print(g, 1, "A\n\xD0\x91", 1));
+  EXPECT_EQ("A", g.out);
+  ASSERT_FALSE(g.pixels.empty());
+  for (auto& px : g.pixels) {
+    EXPECT_GE(px.second, 8);
+    EXPECT_LT(px.second, 18);
+  }
+}
+
+TEST(CyrText, EmojiInsideWrapTakesOneSpace) {
+  FakeGfx g;
+  EXPECT_TRUE(cyr::wordWrap(g, 1, "A\xF0\x9F\x99\x82 B", 128, 64, 1));
+  EXPECT_EQ("A B", g.out);
+  EXPECT_EQ(24, g.x);
+}
+
+TEST(CyrillicGlyphs, EinkFacesAreWellFormed) {
+  EXPECT_EQ(21, CYR_EINK.height);
+  EXPECT_EQ(29, CYR_EINK2.height);
+  for (int i = 0; i < 66; i++) {
+    EXPECT_GE(advanceFor(CYR_EINK, i), 1);
+    EXPECT_GE(advanceFor(CYR_EINK2, i), 1);
+  }
+  bool any = false;
+  for (int y = 0; y < CYR_EINK.height && !any; y++) {
+    for (int x = 0; x < advanceFor(CYR_EINK, 0); x++) {
+      any = any || pixelFor(CYR_EINK, 0, x, y);
+    }
+  }
+  EXPECT_TRUE(any) << "e-ink glyph A must not be empty";
 }

@@ -128,6 +128,9 @@ inline int width(const D& d, int size, const char* str) {
 
 // Word-wraps mixed text inside max_width and above max_y. Breaks at spaces,
 // '-' and '/', or between code points when a single word is too long.
+// Returns true whenever non-ASCII text was taken over by this renderer; the
+// remainder may have been clipped at max_y. Callers must not print the string
+// again when it returns true.
 template <typename D>
 inline bool wordWrap(D& d, int size, const char* str, int max_width, int max_y,
                      uint16_t color) {

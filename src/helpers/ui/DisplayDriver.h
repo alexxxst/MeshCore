@@ -98,9 +98,12 @@ public:
     int str_len = strlen(temp_str);
     
     while (str_len > 0 && getTextWidth(temp_str) > max_width - ellipsis_width) {
-      do {
+      // Drop trailing continuation bytes, then the lead byte / ASCII byte,
+      // so the result never ends in a half-written UTF-8 sequence.
+      while (str_len > 0 && ((unsigned char)temp_str[str_len - 1] & 0xC0) == 0x80) {
         temp_str[--str_len] = 0;
-      } while (str_len > 0 && ((unsigned char)temp_str[str_len] & 0xC0) == 0x80);
+      }
+      if (str_len > 0) temp_str[--str_len] = 0;
     }
     strcat(temp_str, ellipsis);
     
