@@ -302,6 +302,12 @@ build_companion_firmwares() {
   # Heltec Mesh Node T096 (FEM on is the default build)
   build_firmware "Heltec_t096_companion_radio_ble"
 
+  # Heltec Vision Master E213
+  build_firmware "Heltec_E213_companion_radio_ble"
+
+  # Heltec Vision Master E290
+  build_firmware "Heltec_E290_companion_ble"
+
   # ProMicro nRF52 (fakeTec)
   build_firmware "ProMicro_companion_radio_ble"
 
@@ -391,7 +397,9 @@ elif [[ $1 == "build-kiss-radio-firmwares" ]]; then
   build_kiss_modem_firmwares
 elif [[ $1 == "get-companion-firmwares-to-build" ]]; then
   get_pio_envs_ending_with_string "_companion_radio_usb"
+  get_pio_envs_ending_with_string "_companion_usb"
   get_pio_envs_ending_with_string "_companion_radio_ble"
+  get_pio_envs_ending_with_string "_companion_ble"
 elif [[ $1 == "get-repeater-firmwares-to-build" ]]; then
   get_pio_envs_ending_with_string "_repeater"
 elif [[ $1 == "get-room-server-firmwares-to-build" ]]; then
