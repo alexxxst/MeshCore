@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DisplayDriver.h"
+#include "cyrillic/CyrText.h"
 
 #include <SPI.h>
 #include <Wire.h>
@@ -17,6 +18,7 @@ class E213Display : public DisplayDriver {
   CRC32 display_crc;
   uint32_t last_display_crc_value = 0;
   uint16_t _color;
+  int _textSize = 1;
 
 public:
   E213Display(RefCountedDigitalPin* periph_power = NULL) : DisplayDriver(250, 122), _periph_power(periph_power) {}
@@ -36,6 +38,8 @@ public:
   void setColor(ColorVal c) override;
   void setCursor(int x, int y) override;
   void print(const char *str) override;
+  void printWordWrap(const char *str, int max_width) override;
+  void translateUTF8ToBlocks(char *dest, const char *src, size_t dest_size) override;
   void fillRect(int x, int y, int w, int h) override;
   void drawRect(int x, int y, int w, int h) override;
   void drawXbm(int x, int y, const uint8_t *bits, int w, int h) override;
