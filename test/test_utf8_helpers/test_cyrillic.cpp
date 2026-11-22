@@ -343,3 +343,22 @@ TEST(CyrillicGlyphs, EinkOffsetsAreContiguous) {
   EXPECT_EQ(sizeof(CYR_EINK2_BITS),
             (size_t)(CYR_EINK2_OFF[last] + CYR_EINK2.height * ((advanceFor(CYR_EINK2, last) + 7) / 8)));
 }
+
+TEST(CyrillicGlyphs, TftFacesAreWellFormedAndContiguous) {
+  EXPECT_EQ(19, CYR_TFT.height);
+  EXPECT_EQ(28, CYR_TFT2.height);
+  for (int i = 0; i < 66; i++) {
+    EXPECT_GE(advanceFor(CYR_TFT, i), 1);
+    EXPECT_GE(advanceFor(CYR_TFT2, i), 1);
+  }
+  for (int i = 0; i < 65; i++) {
+    const int rowb = (advanceFor(CYR_TFT, i) + 7) / 8;
+    EXPECT_EQ(CYR_TFT_OFF[i] + CYR_TFT.height * rowb, CYR_TFT_OFF[i + 1]);
+    const int rowb2 = (advanceFor(CYR_TFT2, i) + 7) / 8;
+    EXPECT_EQ(CYR_TFT2_OFF[i] + CYR_TFT2.height * rowb2, CYR_TFT2_OFF[i + 1]);
+  }
+  EXPECT_EQ(sizeof(CYR_TFT_BITS),
+            (size_t)(CYR_TFT_OFF[65] + CYR_TFT.height * ((advanceFor(CYR_TFT, 65) + 7) / 8)));
+  EXPECT_EQ(sizeof(CYR_TFT2_BITS),
+            (size_t)(CYR_TFT2_OFF[65] + CYR_TFT2.height * ((advanceFor(CYR_TFT2, 65) + 7) / 8)));
+}
