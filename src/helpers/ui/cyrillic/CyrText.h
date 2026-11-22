@@ -22,6 +22,13 @@ inline int advance(const D&, int size, uint32_t cp) {
   return 6 * s;  // ASCII and unsupported code points (rendered as a space)
 }
 
+// Top row of a Cyrillic glyph when the pen is at the Latin baseline.
+// E-ink faces are metrically matched per text size, so no extra cap-height
+// compensation is needed here.
+inline int glyphTop(const CyrBitmapFont& font, int baseline_y) {
+  return baseline_y - (int)font.baseline;
+}
+
 template <typename D>
 inline void drawGlyph(D& d, int size, int x, int y, int idx, uint16_t color) {
   if (idx < 0) return;
@@ -140,8 +147,7 @@ inline bool wordWrap(D& d, int size, const char* str, int max_width, int max_y,
   const int origin = d.getCursorX();
   int y = d.getCursorY();
   const int glyph_h = (int)CYR_OLED.height * s;
-  int step = 8 * s;
-  if ((int)(CYR_OLED.height + 1) * s > step) step = (int)(CYR_OLED.height + 1) * s;
+  const int step = (int)(CYR_OLED.height + 1) * s;
 
   const char* p = str;
   while (*p) {

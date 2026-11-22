@@ -83,7 +83,6 @@ void E290Display::startFrame(ColorVal bkg) {
     display.fillRect(0, 0, width(), height(), BLACK);
   }
   _color = UIColor::primary_txt;
-  _textSize = 1;
   display.setTextColor(_color);
 }
 
@@ -115,6 +114,9 @@ void E290Display::print(const char *str) {
 }
 
 void E290Display::printWordWrap(const char *str, int max_width) {
+  int limit = width() - display.getCursorX();
+  if (limit < 1) limit = 1;
+  if (max_width > limit) max_width = limit;
   display_crc.update<char>(str, strlen(str));
   display_crc.update<int>(max_width);
 #if CYRILLIC_SUPPORT

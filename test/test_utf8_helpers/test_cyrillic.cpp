@@ -3,7 +3,6 @@
 #include <cstring>
 #include <set>
 #include <string>
-#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -255,8 +254,10 @@ TEST(CyrText, WordWrapStopsAboveBottom) {
 TEST(CyrText, AsciiRunRespectsDeviceTextSize) {
   FakeGfx g;
   g.textSize = 2;
-  g.print("AB");
-  EXPECT_EQ(24, g.x);
+  EXPECT_TRUE(cyr::print(g, 2, "A\xD0\x91", 1));
+  EXPECT_EQ("A", g.out);
+  EXPECT_EQ(24, g.x);  // A = 12 physical px, Б = 12 physical px
+  EXPECT_FALSE(g.pixels.empty());
 }
 
 TEST(CyrText, WordWrapLongUnbrokenWordStaysInBounds) {
@@ -321,4 +322,24 @@ TEST(CyrillicGlyphs, EinkFacesAreWellFormed) {
     }
   }
   EXPECT_TRUE(any) << "e-ink glyph A must not be empty";
+}
+
+
+TEST(CyrEinkAdapter, GlyphTopHasNoExtraCapShift) {
+  EXPECT_EQ(10 - (int)CYR_EINK.baseline, cyr::glyphTop(CYR_EINK, 10));
+  EXPECT_EQ(10 - (int)CYR_EINK2.baseline, cyr::glyphTop(CYR_EINK2, 10));
+}
+
+TEST(CyrillicGlyphs, EinkOffsetsAreContiguous) {
+  for (int i = 0; i < 65; i++) {
+    const int row_bytes = (advanceFor(CYR_EINK, i) + 7) / 8;
+    EXPECT_EQ(CYR_EINK_OFF[i] + CYR_EINK.height * row_bytes, CYR_EINK_OFF[i + 1]);
+    const int row_bytes2 = (advanceFor(CYR_EINK2, i) + 7) / 8;
+    EXPECT_EQ(CYR_EINK2_OFF[i] + CYR_EINK2.height * row_bytes2, CYR_EINK2_OFF[i + 1]);
+  }
+  const int last = 65;
+  EXPECT_EQ(sizeof(CYR_EINK_BITS),
+            (size_t)(CYR_EINK_OFF[last] + CYR_EINK.height * ((advanceFor(CYR_EINK, last) + 7) / 8)));
+  EXPECT_EQ(sizeof(CYR_EINK2_BITS),
+            (size_t)(CYR_EINK2_OFF[last] + CYR_EINK2.height * ((advanceFor(CYR_EINK2, last) + 7) / 8)));
 }

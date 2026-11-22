@@ -100,7 +100,6 @@ void GxEPDDisplay::clear() {
 void GxEPDDisplay::startFrame(ColorVal bkg) {
   display.fillScreen(bkg);
   display.setTextColor(_curr_color = UIColor::primary_txt);
-  _textSize = 1;
   display_crc.reset();
   if (_cycles_before_full_refresh != 0) {
     display.setPartialWindow(0, 0, display.width(), display.height());
@@ -155,14 +154,6 @@ static const GFXfont* latinFace(int textSize) {
   }
 }
 
-static int capHeightPx(const GFXfont* font) {
-  GFXfont face;
-  memcpy_P(&face, font, sizeof(face));
-  GFXglyph glyph;
-  memcpy_P(&glyph, face.glyph + ('H' - face.first), sizeof(glyph));
-  return -glyph.yOffset;
-}
-
 static int latinAdvance(const GFXfont* font, uint32_t cp) {
   if (cp < 32 || cp > 255) return 0;
   GFXfont face;
@@ -201,8 +192,7 @@ void GxEPDDisplay::drawCyrGlyph(int idx, int x, int baseline_y) {
   if (idx < 0) return;
   const CyrBitmapFont& font = cyrFace();
   const int w = advanceFor(font, idx);
-  const int adjust = capHeightPx(latinFace(_textSize)) - capHeightPx(&FreeSans9pt7b);
-  const int top = baseline_y - (int)font.baseline + adjust;
+  const int top = cyr::glyphTop(font, baseline_y);
   for (int row = 0; row < font.height; row++) {
     int run = -1;
     for (int col = 0; col <= w; col++) {
