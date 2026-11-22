@@ -561,10 +561,12 @@ void ST7735Display::startFrame(ColorVal bkg) {
   sprite->setTextColor(curr_color = UIColor::primary_txt);
   sprite->setFreeFont();
   sprite->setTextSize(1);      // This one affects size of Please wait... message
+  _textSize = 1;
   //sprite->cp437(true);         // Use full 256 char 'Code Page 437' font
 }
 
 void ST7735Display::setTextSize(int sz) {
+  _textSize = sz;
   sprite->setTextSize(sz);
 }
 
@@ -578,7 +580,26 @@ void ST7735Display::setCursor(int x, int y) {
 }
 
 void ST7735Display::print(const char* str) {
+#if CYRILLIC_SUPPORT
+  if (cyr::print(*sprite, _textSize, str, curr_color)) return;
+#endif
   sprite->print(str);
+}
+
+void ST7735Display::printWordWrap(const char* str, int max_width) {
+#if CYRILLIC_SUPPORT
+  if (cyr::wordWrap(*sprite, _textSize, str, (int)(max_width * SCALE_X),
+                    (int)(height() * SCALE_Y), curr_color)) return;
+#endif
+  print(str);
+}
+
+void ST7735Display::translateUTF8ToBlocks(char* dest, const char* src, size_t dest_size) {
+#if CYRILLIC_SUPPORT
+  cyr::translateUtf8KeepCyrillic(dest, src, dest_size);
+#else
+  DisplayDriver::translateUTF8ToBlocks(dest, src, dest_size);
+#endif
 }
 
 void ST7735Display::fillRect(int x, int y, int w, int h) {
@@ -594,6 +615,11 @@ void ST7735Display::drawXbm(int x, int y, const uint8_t* bits, int w, int h) {
 }
 
 uint16_t ST7735Display::getTextWidth(const char* str) {
+#if CYRILLIC_SUPPORT
+  if (cyr::hasNonAscii(str)) {
+    return (uint16_t)(cyr::width(*sprite, _textSize, str) / SCALE_X);
+  }
+#endif
   return sprite->textWidth(str) / SCALE_X;
 }
 

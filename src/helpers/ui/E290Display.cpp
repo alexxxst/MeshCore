@@ -88,6 +88,7 @@ void E290Display::startFrame(ColorVal bkg) {
 
 void E290Display::setTextSize(int sz) {
   display_crc.update<int>(sz);
+  _textSize = sz;
   // The library handles text size internally
   display.setTextSize(sz);
 }
@@ -106,7 +107,30 @@ void E290Display::setCursor(int x, int y) {
 
 void E290Display::print(const char *str) {
   display_crc.update<char>(str, strlen(str));
+#if CYRILLIC_SUPPORT
+  if (cyr::print(display, _textSize, str, _color)) return;
+#endif
   display.print(str);
+}
+
+void E290Display::printWordWrap(const char *str, int max_width) {
+  int limit = width() - display.getCursorX();
+  if (limit < 1) limit = 1;
+  if (max_width > limit) max_width = limit;
+  display_crc.update<char>(str, strlen(str));
+  display_crc.update<int>(max_width);
+#if CYRILLIC_SUPPORT
+  if (cyr::wordWrap(display, _textSize, str, max_width, height(), _color)) return;
+#endif
+  display.print(str);
+}
+
+void E290Display::translateUTF8ToBlocks(char *dest, const char *src, size_t dest_size) {
+#if CYRILLIC_SUPPORT
+  cyr::translateUtf8KeepCyrillic(dest, src, dest_size);
+#else
+  DisplayDriver::translateUTF8ToBlocks(dest, src, dest_size);
+#endif
 }
 
 void E290Display::fillRect(int x, int y, int w, int h) {
@@ -153,6 +177,9 @@ void E290Display::drawXbm(int x, int y, const uint8_t *bits, int w, int h) {
 }
 
 uint16_t E290Display::getTextWidth(const char *str) {
+#if CYRILLIC_SUPPORT
+  if (cyr::hasNonAscii(str)) return cyr::width(display, _textSize, str);
+#endif
   int16_t x1, y1;
   uint16_t w, h;
   display.getTextBounds(str, 0, 0, &x1, &y1, &w, &h);

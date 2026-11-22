@@ -72,7 +72,8 @@ public:
   virtual void drawTextEllipsized(int x, int y, int max_width, const char* str) {
     char temp_str[256];  // reasonable buffer size
     size_t len = strlen(str);
-    if (len >= sizeof(temp_str)) len = sizeof(temp_str) - 1;
+    const size_t max_len = sizeof(temp_str) - sizeof("... ");
+    if (len > max_len) len = max_len;
     memcpy(temp_str, str, len);
     temp_str[len] = 0;
     
@@ -98,7 +99,12 @@ public:
     int str_len = strlen(temp_str);
     
     while (str_len > 0 && getTextWidth(temp_str) > max_width - ellipsis_width) {
-      temp_str[--str_len] = 0;
+      // Drop trailing continuation bytes, then the lead byte / ASCII byte,
+      // so the result never ends in a half-written UTF-8 sequence.
+      while (str_len > 0 && ((unsigned char)temp_str[str_len - 1] & 0xC0) == 0x80) {
+        temp_str[--str_len] = 0;
+      }
+      if (str_len > 0) temp_str[--str_len] = 0;
     }
     strcat(temp_str, ellipsis);
     

@@ -5,9 +5,11 @@
 #include <SPI.h>
 #include "TFT_eSPI.h"
 #include <helpers/RefCountedDigitalPin.h>
+#include "cyrillic/CyrText.h"
 
 class ST7735Display : public DisplayDriver {
   bool _isOn;
+  int _textSize;
   RefCountedDigitalPin* _peripher_power;
 
   bool i2c_probe(TwoWire& wire, uint8_t addr);
@@ -15,6 +17,7 @@ public:
 #ifdef USE_PIN_TFT
   ST7735Display(RefCountedDigitalPin* peripher_power=NULL) : DisplayDriver(128, 64), 
     //  display(PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_SDA, PIN_TFT_SCL, PIN_TFT_RST),
+      _textSize(1),
       _peripher_power(peripher_power)
   {
     _isOn = false;
@@ -22,6 +25,7 @@ public:
 #else
   ST7735Display(RefCountedDigitalPin* peripher_power=NULL) : DisplayDriver(128, 64),
     //  display(&SPI1, PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST),
+      _textSize(1),
       _peripher_power(peripher_power)
   {
     _isOn = false;
@@ -38,6 +42,8 @@ public:
   void setColor(ColorVal c) override;
   void setCursor(int x, int y) override;
   void print(const char* str) override;
+  void printWordWrap(const char* str, int max_width) override;
+  void translateUTF8ToBlocks(char* dest, const char* src, size_t dest_size) override;
   void fillRect(int x, int y, int w, int h) override;
   void drawRect(int x, int y, int w, int h) override;
   void drawXbm(int x, int y, const uint8_t* bits, int w, int h) override;

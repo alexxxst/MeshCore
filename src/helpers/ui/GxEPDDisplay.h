@@ -15,6 +15,7 @@
 #include <CRC32.h>
 
 #include "DisplayDriver.h"
+#include "cyrillic/CyrText.h"
 
 #ifndef EINK_MAX_PARTIAL_REFRESH
   // 60 to prevent ghosting when refreshing every minute ...
@@ -39,11 +40,19 @@ class GxEPDDisplay : public DisplayDriver {
 #endif
   bool _init = false;
   bool _isOn = false;
+  int _textSize = 1;
+  int _lx = 0, _ly = 0;
   uint16_t _curr_color;
   CRC32 display_crc;
   int last_display_crc_value = 0;
   int _cycles_before_full_refresh;
   int max_partial_refresh = EINK_MAX_PARTIAL_REFRESH; // so this can be changed by an option after
+
+  const CyrBitmapFont& cyrFace() const;
+  void drawCyrGlyph(int idx, int x, int baseline_y);
+  void printSpan(const char* begin, const char* end);
+  int codepointWidthPx(uint32_t cp) const;
+  int textLineStep() const;
 
 public:
 #if defined(EINK_DISPLAY_MODEL)
@@ -66,6 +75,8 @@ public:
   void setColor(ColorVal c) override;
   void setCursor(int x, int y) override;
   void print(const char* str) override;
+  void printWordWrap(const char* str, int max_width) override;
+  void translateUTF8ToBlocks(char* dest, const char* src, size_t dest_size) override;
   void fillRect(int x, int y, int w, int h) override;
   void drawRect(int x, int y, int w, int h) override;
   void drawXbm(int x, int y, const uint8_t* bits, int w, int h) override;
