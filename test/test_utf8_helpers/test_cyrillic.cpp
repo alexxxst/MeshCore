@@ -1,5 +1,10 @@
 #include <gtest/gtest.h>
 
+#include <cstring>
+#include <string>
+
+#include <helpers/UTF8Helpers.h>
+#include <helpers/ui/DisplayDriver.h>
 #include <helpers/ui/cyrillic/CyrillicFont.h>
 #include <helpers/ui/cyrillic/CyrillicGlyphs.h>
 
@@ -81,4 +86,47 @@ TEST(CyrillicGlyphs, PixelAccessIsBounded) {
     }
   }
   EXPECT_TRUE(any) << "glyph A must not be empty";
+}
+
+
+class FakeDisplay : public DisplayDriver {
+ public:
+  std::string out;
+  int charW = 1;
+
+  FakeDisplay() : DisplayDriver(128, 64) {}
+
+  bool isOn() override { return true; }
+  void turnOn() override {}
+  void turnOff() override {}
+  void clear() override {}
+  void startFrame(ColorVal) override {}
+  void setTextSize(int) override {}
+  void setColor(ColorVal) override {}
+  void setCursor(int, int) override {}
+  void print(const char* s) override { out += s; }
+  void fillRect(int, int, int, int) override {}
+  void drawRect(int, int, int, int) override {}
+  void drawXbm(int, int, const uint8_t*, int, int) override {}
+  uint16_t getTextWidth(const char* s) override { return strlen(s) * charW; }
+  void endFrame() override {}
+};
+
+TEST(DisplayText, EllipsisDoesNotSplitCyrillic) {
+  FakeDisplay d;
+  d.drawTextEllipsized(0, 0, 9, "\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82");
+  EXPECT_EQ("\xD0\x9F\xD1\x80\xD0\xB8...", d.out);
+  EXPECT_EQ(d.out.size(), mesh::validUtf8PrefixLength(d.out.c_str(), d.out.size()));
+}
+
+TEST(DisplayText, EllipsisLeavesFittingTextAlone) {
+  FakeDisplay d;
+  d.drawTextEllipsized(0, 0, 12, "\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82");
+  EXPECT_EQ("\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82", d.out);
+}
+
+TEST(DisplayText, EllipsisStillWorksForAscii) {
+  FakeDisplay d;
+  d.drawTextEllipsized(0, 0, 4, "Hello");
+  EXPECT_EQ("H...", d.out);
 }
